@@ -229,7 +229,6 @@ AS
             RAISE;
     END f_student_visa;
 
-
     /**
     * Retrieves the TD translated SEVIS-Required Code
     *
@@ -592,7 +591,7 @@ AS
         ret           INTEGER;
 
         --FILE PROCESSING VARIABLES
-        v_directory   VARCHAR2 (30) := 'TERRADOTTA';
+        v_directory   VARCHAR2 (30) := gv_directory_name;
         v_file_name   VARCHAR2 (30) := 'hr_user_info_core.txt';
     BEGIN
         id :=
@@ -687,7 +686,7 @@ AS
         ret           INTEGER;
 
         --FILE PROCESSING VARIABLES
-        v_directory   VARCHAR2 (30) := 'TERRADOTTA';
+        v_directory   VARCHAR2 (30) := gv_directory_name;
         v_file_name   VARCHAR2 (30) := 'sis_user_info_core.txt';
     BEGIN
         id :=
@@ -1278,7 +1277,7 @@ AS
         ret                             INTEGER;
 
         --FILE PROCESSING VARIABLES
-        v_directory                     VARCHAR2 (30) := 'TERRADOTTA';
+        v_directory                     VARCHAR2 (30) := gv_directory_name;
         v_file_name                     VARCHAR2 (30) := 'sis_user_info.txt';
 
         --EXTRACT VARIABLES
