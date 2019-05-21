@@ -1,0 +1,1091 @@
+/* Formatted on 5/21/2019 9:14:06 AM (QP5 v5.336) */
+CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
+AS
+    /***************************************************************************
+
+       REVISIONS:
+       Date       Author           Description
+       ---------  ---------------  ------------------------------------
+       20160617   Carl Ellsworth   created this package from z_student_etl
+       20160620   Carl Ellsworth   added p_extract_sis_user_info_custom
+       20160622   Carl Ellsworth   split out individual address fields
+       20160623   Carl Ellsworth   updated file names to match vendor spec
+       20170103   Carl Ellsworth   added error handling to track down issues
+       20170406   Carl Ellsworth   removed unessesary SQLERRM causing APPMANAGER GRIEF
+       20170511   Carl Ellsworth   Option1 field now populated with residency
+       20170908   Carl Ellsworth   updated term function calls
+       20180524   Carl Ellsworth   added custom call for majority campus
+       20180926   Carl Ellsworth   updated major2 field with college as requested
+
+    ***************************************************************************/
+
+    gv_directory_name   VARCHAR2 (30) := 'TERRADOTTA';
+
+    FUNCTION f_enclose (p_string IN OUT VARCHAR2)
+        RETURN VARCHAR2
+    IS
+        quot   CHAR := CHR (34);               --ASCII character double quotes
+    BEGIN
+        IF p_string IS NULL
+        THEN
+            RETURN NULL;
+        ELSE
+            RETURN (quot || p_string || quot);
+        END IF;
+    END;
+
+    FUNCTION f_parse (p_string    VARCHAR2,
+                      p_col_num   VARCHAR2,
+                      p_delim     VARCHAR2)
+        RETURN VARCHAR2
+    /***************************************************************************
+       This process will receive a column number as an input parameter and return
+        the value in that column.  If nothing is found will return null.
+    ***************************************************************************/
+    IS
+        --v_delim         VARCHAR2 (1) := CHR (9);                           --tab
+        v_parse_first   VARCHAR2 (32767);
+        v_parse_last    VARCHAR2 (32767);
+        v_parse_quote   VARCHAR2 (32767);
+        v_value         VARCHAR2 (32767);
+        v_string        VARCHAR2 (32767);
+    BEGIN
+        -- Add comma to end of the string to allow function to parse out possible last value
+        v_string := p_string || p_delim;
+
+        -- get characters up to the desired delim (row)
+        v_parse_first :=
+            SUBSTR (v_string,
+                    1,
+                      INSTR (v_string,
+                             p_delim,
+                             1,
+                             p_col_num)
+                    - 1);
+
+        -- reverse search keeping everything from the end of the string until the first comma
+        v_parse_last :=
+            SUBSTR (v_parse_first,
+                      INSTR (v_parse_first,
+                             p_delim,
+                             -1,
+                             1)
+                    + 1);
+
+        --trim any quotes from characters
+        v_parse_quote := TRIM ('"' FROM v_parse_last);
+
+        -- trim any leading or trailing spaces in data.
+        v_value := TRIM (v_parse_quote);
+
+        RETURN v_value;
+    END;
+
+    PROCEDURE p_student_address (p_pidm                 VARCHAR2,
+                                 p_addr_type            VARCHAR2,
+                                 p_addr_date            DATE DEFAULT NULL,
+                                 out_street_line1   OUT VARCHAR2,
+                                 out_street_line2   OUT VARCHAR2,
+                                 out_street_line3   OUT VARCHAR2,
+                                 out_city           OUT VARCHAR2,
+                                 out_stat_code      OUT VARCHAR2,
+                                 out_zip            OUT VARCHAR2,
+                                 out_natn_code      OUT VARCHAR2)
+    /*
+        RETURN VARCHAR2
+     IS
+        v_address   VARCHAR2 (256);
+    */
+    AS
+    BEGIN
+        SELECT /*
+                      spraddr_street_line1
+                      || ', '
+                      || CASE
+                            WHEN spraddr_street_line2 IS NULL THEN ''
+                            ELSE spraddr_street_line2 || ', '
+                         END
+                      || CASE
+                            WHEN spraddr_street_line3 IS NULL THEN ''
+                            ELSE spraddr_street_line3 || ', '
+                         END
+                      || spraddr_city
+                      || ' '
+                      || spraddr_stat_code
+                      || ' '
+                      || spraddr_zip
+                      || CASE
+                            WHEN spraddr_natn_code = 'US' THEN ''
+                            ELSE ', ' || spraddr_natn_code
+                         END
+                         AS student_address
+                 */
+               spraddr_street_line1,
+               spraddr_street_line2,
+               spraddr_street_line3,
+               spraddr_city,
+               spraddr_stat_code,
+               spraddr_zip,
+               F_GET_DESC ('STVNATN', spraddr_natn_code)
+          INTO out_street_line1,
+               out_street_line2,
+               out_street_line3,
+               out_city,
+               out_stat_code,
+               out_zip,
+               out_natn_code
+          FROM spraddr
+         WHERE     spraddr_pidm = p_pidm
+               AND spraddr_atyp_code = p_addr_type
+               AND (spraddr_status_ind IS NULL OR spraddr_status_ind = 'A')
+               AND TRUNC (NVL (p_addr_date, SYSDATE)) BETWEEN TRUNC (
+                                                                  NVL (
+                                                                      spraddr_from_date,
+                                                                      NVL (
+                                                                          p_addr_date,
+                                                                          SYSDATE)))
+                                                          AND TRUNC (
+                                                                  NVL (
+                                                                      spraddr_to_date,
+                                                                      NVL (
+                                                                          p_addr_date,
+                                                                          SYSDATE)));
+    --RETURN v_address;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            out_street_line1 := NULL;
+            out_street_line2 := NULL;
+            out_street_line3 := NULL;
+            out_city := NULL;
+            out_stat_code := NULL;
+            out_zip := NULL;
+            out_natn_code := NULL;
+        --return null;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Address: '
+                || 'PIDM: '
+                || p_pidm
+                || ' ADDR_TYPE: '
+                || p_addr_type
+                || ' ADDR_DATE: '
+                || p_addr_date
+                || SQLERRM);
+            RAISE;
+    END;
+
+
+    FUNCTION f_student_level (p_pidm VARCHAR2, p_term VARCHAR2)
+        RETURN VARCHAR2
+    IS
+        v_level_code   VARCHAR2 (8);
+    BEGIN
+        SELECT sgbstdn_levl_code
+          INTO v_level_code
+          FROM sgbstdn
+         WHERE     sgbstdn_term_code_eff =
+                   (SELECT MAX (bravo.sgbstdn_term_code_eff)
+                      FROM sgbstdn bravo
+                     WHERE     bravo.sgbstdn_pidm = sgbstdn.sgbstdn_pidm
+                           AND bravo.sgbstdn_term_code_eff <= p_term)
+               AND sgbstdn_pidm = p_pidm;
+
+        RETURN v_level_code;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Level: '
+                || SQLERRM);
+            RAISE;
+    END;
+
+    FUNCTION f_student_visa (p_pidm gorvisa.gorvisa_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        --
+        rtn_visa   VARCHAR2 (16);
+    BEGIN
+        SELECT MAX (gorvisa_vtyp_code)
+          INTO rtn_visa
+          FROM gorvisa
+         WHERE     gorvisa_pidm = p_pidm
+               AND gorvisa_seq_no = (SELECT MAX (gorvisa_seq_no)
+                                       FROM gorvisa beta
+                                      WHERE beta.gorvisa_pidm = p_pidm);
+
+        RETURN rtn_visa;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Visa: '
+                || SQLERRM);
+            RAISE;
+    END f_student_visa;
+
+    FUNCTION f_student_natn (p_pidm gobintl.gobintl_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        --
+        rtn_natn   VARCHAR2 (16);
+    BEGIN
+        SELECT MAX (gobintl_natn_code_legal)
+          INTO rtn_natn
+          FROM gobintl
+         WHERE gobintl_pidm = p_pidm;
+
+        RETURN rtn_natn;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Nation: '
+                || SQLERRM);
+            RAISE;
+    END f_student_natn;
+
+    FUNCTION f_student_record (
+        p_pidm            sgbstdn.sgbstdn_pidm%TYPE,
+        p_term_code       sgbstdn.sgbstdn_term_code_eff%TYPE,
+        out_major_1   OUT VARCHAR2,
+        out_college   OUT VARCHAR2)
+        RETURN DATE
+    IS
+        --this procedure served as a shortcut to major_1 and major_2
+        -- Monika Galvydis requested that major_2 be populated with college instead
+        -- the chnage was made on 20180926 and is noted here due to the field name
+        rtn_exp_grad_date   DATE;
+    BEGIN
+        SELECT sgbstdn_exp_grad_date, alpha.stvmajr_desc, stvcoll_desc --bravo.stvmajr_desc
+          INTO rtn_exp_grad_date, out_major_1, out_college       --out_major_2
+          FROM sgbstdn  alpha
+               LEFT JOIN stvmajr alpha
+                   ON alpha.stvmajr_code = sgbstdn_majr_code_1
+               LEFT JOIN stvmajr bravo
+                   ON bravo.stvmajr_code = sgbstdn_majr_code_2
+               LEFT JOIN stvcoll ON stvcoll_code = alpha.sgbstdn_coll_code_1
+         WHERE     sgbstdn_pidm = p_pidm
+               AND sgbstdn_term_code_eff =
+                   (SELECT MAX (bravo.sgbstdn_term_code_eff)
+                      FROM sgbstdn bravo
+                     WHERE     bravo.sgbstdn_pidm = alpha.sgbstdn_pidm
+                           AND bravo.sgbstdn_term_code_eff <= p_term_code);
+
+        RETURN rtn_exp_grad_date;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            rtn_exp_grad_date := NULL;
+            out_major_1 := NULL;
+            out_college := NULL;
+            --out_major_2 := NULL;
+            RETURN rtn_exp_grad_date;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Record: '
+                || SQLERRM);
+            RAISE;
+    END f_student_record;
+
+    FUNCTION f_student_emergency (p_pidm spremrg.spremrg_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        --
+        rtn_emergency_contact   VARCHAR2 (512);
+    BEGIN
+        SELECT TRIM (
+                      'NAME: '
+                   || spremrg_first_name
+                   || ' '
+                   || spremrg_last_name
+                   || ' PHONE: '
+                   || spremrg_phone_area
+                   || spremrg_phone_number
+                   || ' ADDRESS: '
+                   || CASE
+                          WHEN spremrg_street_line1 IS NULL THEN ''
+                          ELSE spremrg_street_line1 || ', '
+                      END
+                   || CASE
+                          WHEN spremrg_street_line2 IS NULL THEN ''
+                          ELSE spremrg_street_line2 || ', '
+                      END
+                   || CASE
+                          WHEN spremrg_street_line3 IS NULL THEN ''
+                          ELSE spremrg_street_line3 || ', '
+                      END
+                   || spremrg_city
+                   || ' '
+                   || spremrg_stat_code
+                   || ' '
+                   || spremrg_zip
+                   || CASE
+                          WHEN spremrg_natn_code = 'US' THEN ''
+                          WHEN spremrg_natn_code IS NULL THEN ''
+                          ELSE ', ' || spremrg_natn_code
+                      END)    AS CONTACT_STRING
+          INTO rtn_emergency_contact
+          FROM spremrg alpha
+         WHERE     spremrg_pidm = p_pidm
+               AND spremrg_priority =
+                   (SELECT MIN (bravo.spremrg_priority)
+                      FROM spremrg bravo
+                     WHERE bravo.spremrg_pidm = alpha.spremrg_pidm);
+
+        RETURN rtn_emergency_contact;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Emergency Contact: '
+                || SQLERRM);
+            RAISE;
+    END f_student_emergency;
+
+    FUNCTION f_student_mobile (p_pidm sprtele.sprtele_pidm%TYPE)
+        RETURN VARCHAR2
+    AS
+        rtn_phone_number   VARCHAR2 (64);
+    BEGIN
+        SELECT phone_number
+          INTO rtn_phone_number
+          FROM (  SELECT    sprtele_ctry_code_phone
+                         || sprtele_phone_area
+                         || sprtele_phone_number
+                         || sprtele_phone_ext    AS phone_number
+                    FROM sprtele
+                   WHERE     (sprtele_atyp_code, sprtele_addr_seqno) =
+                             (SELECT spraddr_atyp_code, spraddr_seqno
+                                FROM spraddr
+                               WHERE     spraddr.ROWID = baninst1.F_GET_ADDRESS_ROWID (
+                                                             spraddr_pidm,
+                                                             'ADMSADDR',
+                                                             'A',
+                                                             SYSDATE,
+                                                             NULL,
+                                                             'S',
+                                                             NULL)
+                                     AND spraddr_pidm = sprtele_pidm)
+                         AND sprtele_tele_code = 'MOB'                --mobile
+                         AND sprtele_pidm = p_pidm
+                         AND sprtele_status_ind IS NULL
+                ORDER BY sprtele_seqno DESC) numbers
+         WHERE ROWNUM = 1;
+
+        RETURN rtn_phone_number;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Mobile Number: '
+                || SQLERRM);
+            RAISE;
+    END f_student_mobile;
+
+    FUNCTION f_holds_academic (p_pidm sprhold.sprhold_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_boolean   VARCHAR2 (3) := NULL;
+    BEGIN
+        --academic holds
+        SELECT DISTINCT MAX ('Yes')
+          INTO rtn_boolean
+          FROM sprhold
+         WHERE     sprhold_hldd_code IN ('AA',
+                                         'AD',
+                                         'AT',
+                                         'CT',
+                                         'CW',
+                                         'DH',
+                                         'HO',
+                                         'IN',
+                                         'IS',
+                                         'JD',
+                                         'J1',
+                                         'MS',
+                                         'RG',
+                                         'SH',
+                                         'TR',
+                                         'UA',
+                                         'VT')
+               AND SYSDATE BETWEEN sprhold_from_date
+                               AND NVL (sprhold_to_date, SYSDATE)
+               AND sprhold_pidm = p_pidm;
+
+        IF rtn_boolean IS NULL
+        THEN
+            rtn_boolean := 'No';
+        END IF;
+
+        RETURN rtn_boolean;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Academic Holds: '
+                || SQLERRM);
+            RAISE;
+    END;
+
+    FUNCTION f_holds_financial (p_pidm sprhold.sprhold_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_boolean   VARCHAR2 (3) := NULL;
+    BEGIN
+        --financial holds
+        SELECT DISTINCT MAX ('Yes')
+          INTO rtn_boolean
+          FROM sprhold
+         WHERE     sprhold_hldd_code IN ('A1',
+                                         'AR',
+                                         'BI',
+                                         'BK',
+                                         'CB',
+                                         'CP',
+                                         'JM',
+                                         'LF',
+                                         'P1',
+                                         'P3',
+                                         'PF',
+                                         'PR',
+                                         'R1',
+                                         'RT',
+                                         'T1',
+                                         'WO')
+               AND SYSDATE BETWEEN sprhold_from_date
+                               AND NVL (sprhold_to_date, SYSDATE)
+               AND sprhold_pidm = p_pidm;
+
+        IF rtn_boolean IS NULL
+        THEN
+            rtn_boolean := 'No';
+        END IF;
+
+        RETURN rtn_boolean;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Financial Holds: '
+                || SQLERRM);
+            RAISE;
+    END;
+
+    FUNCTION f_student_resd (p_pidm VARCHAR2, p_term VARCHAR2)
+        RETURN VARCHAR2
+    IS
+        v_resd_desc   VARCHAR2 (30);
+    BEGIN
+        SELECT stvresd_desc
+          INTO v_resd_desc
+          FROM sgbstdn JOIN stvresd ON sgbstdn_resd_code = stvresd_code
+         WHERE     sgbstdn_term_code_eff =
+                   (SELECT MAX (bravo.sgbstdn_term_code_eff)
+                      FROM sgbstdn bravo
+                     WHERE     bravo.sgbstdn_pidm = sgbstdn.sgbstdn_pidm
+                           AND bravo.sgbstdn_term_code_eff <= p_term)
+               AND sgbstdn_pidm = p_pidm;
+
+        RETURN v_resd_desc;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Residency: '
+                || SQLERRM);
+            RAISE;
+    END;
+
+    PROCEDURE p_extract_hr_user_info_core
+    IS
+        v_delim       VARCHAR2 (1) := CHR (9); --ASCII Character horizonal tab
+
+        --PROCESSING VARIABLES
+        id            UTL_FILE.file_type;
+        filedata      VARCHAR2 (20000);
+
+        CURSOR hr_cur IS
+            (SELECT SUBSTR (spriden_first_name, 1, 50)         user_first_name,
+                    SUBSTR (spriden_last_name, 1, 50)          user_last_name,
+                    SUBSTR (spriden_mi, 1, 50)                 user_middle_name,
+                    spriden_id                                 user_name,
+                    SUBSTR (goremal_email_address, 1, 250)     user_email
+               FROM (SELECT DISTINCT spriden_pidm     pidm
+                       FROM ts_hr.hrd_emplposnjobs@EDW
+                      WHERE     nbbposn_posn LIKE '9%'
+                            AND nbrjobs_effective_date < SYSDATE
+                            AND nbrjobs_nchg_date >= SYSDATE) population
+                    JOIN spriden
+                        ON spriden_pidm = pidm AND spriden_change_ind IS NULL
+                    --LEFT JOIN spbpers ON spbpers_pidm = pidm
+                    LEFT OUTER JOIN goremal
+                        ON     goremal_pidm = pidm
+                           AND goremal_status_ind = 'A'
+                           AND goremal_preferred_ind = 'Y');
+
+        cur           INTEGER;
+        ret           INTEGER;
+
+        --FILE PROCESSING VARIABLES
+        v_directory   VARCHAR2 (30) := 'TERRADOTTA';
+        v_file_name   VARCHAR2 (30) := 'hr_user_info_core.txt';
+    BEGIN
+        id :=
+            UTL_FILE.fopen (v_directory,
+                            v_file_name,
+                            'w',
+                            20000);
+
+        --  HEADER RECORD
+        filedata :=
+               'UUUID'
+            || v_delim
+            || 'First_Name'
+            || v_delim
+            || 'Last_Name'
+            || v_delim
+            || 'Middle_Name'
+            || v_delim
+            || 'Email';
+
+        --output header record
+        UTL_FILE.put_line (id, filedata);
+
+        FOR hr_rec IN hr_cur
+        LOOP
+            BEGIN
+                filedata :=
+                       hr_rec.user_name
+                    || v_delim
+                    || hr_rec.user_first_name
+                    || v_delim
+                    || hr_rec.user_last_name
+                    || v_delim
+                    || hr_rec.user_middle_name
+                    || v_delim
+                    || hr_rec.user_email;
+
+                UTL_FILE.put_line (id, filedata);
+            EXCEPTION
+                WHEN OTHERS
+                THEN
+                    DBMS_OUTPUT.put_line (
+                        'TDEXPORT - Bad row creation in file: ' || SQLERRM);
+            END;
+        END LOOP;
+
+        UTL_FILE.fclose (id);
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.put_line ('TDEXPORT - UNKNOWN ERROR: ' || SQLERRM);
+    END;
+
+    PROCEDURE p_extract_sis_user_info_core
+    IS
+        v_delim       VARCHAR2 (1) := CHR (9); --ASCII Character horizonal tab
+
+        --PROCESSING VARIABLES
+        id            UTL_FILE.file_type;
+        filedata      VARCHAR2 (20000);
+
+        CURSOR student_cur IS
+            (SELECT SUBSTR (spriden_first_name, 1, 50)        user_first_name,
+                    SUBSTR (spriden_last_name, 1, 50)         user_last_name,
+                    SUBSTR (spriden_mi, 1, 50)                user_middle_name,
+                    spriden_id                                user_name,
+                    SUBSTR (goremal_email_address, 1, 250)    user_email,
+                    spbpers_birth_date                        user_dob,
+                    spbpers_sex                               user_sex,
+                    COALESCE (spbpers_confid_ind, 'N')        user_confidentiality
+               FROM (SELECT DISTINCT saradap_pidm     pidm
+                       FROM saradap                       --admissions records
+                      WHERE saradap_term_code_entry IN
+                                (SELECT term_code
+                                   FROM TABLE (F_LIST_ACTIVETERMS))
+                     UNION
+                     SELECT DISTINCT sfrstcr_pidm     pidm
+                       FROM sfrstcr                     --registration records
+                      WHERE sfrstcr_term_code IN
+                                (SELECT term_code
+                                   FROM TABLE (F_LIST_ACTIVETERMS)))
+                    population
+                    JOIN spriden
+                        ON spriden_pidm = pidm AND spriden_change_ind IS NULL
+                    LEFT JOIN spbpers ON spbpers_pidm = pidm
+                    LEFT OUTER JOIN goremal
+                        ON     goremal_pidm = pidm
+                           AND goremal_status_ind = 'A'
+                           AND goremal_preferred_ind = 'Y');
+
+        cur           INTEGER;
+        ret           INTEGER;
+
+        --FILE PROCESSING VARIABLES
+        v_directory   VARCHAR2 (30) := 'TERRADOTTA';
+        v_file_name   VARCHAR2 (30) := 'sis_user_info_core.txt';
+    BEGIN
+        id :=
+            UTL_FILE.fopen (v_directory,
+                            v_file_name,
+                            'w',
+                            20000);
+
+        --  HEADER RECORD
+        filedata :=
+               'UUUID'
+            || v_delim
+            || 'First_Name'
+            || v_delim
+            || 'Last_Name'
+            || v_delim
+            || 'Middle_Name'
+            || v_delim
+            || 'Email'
+            || v_delim
+            || 'DOB'
+            || v_delim
+            || 'Gender'
+            || v_delim
+            || 'Confidentiality_Indicator';
+
+        --output header record
+        UTL_FILE.put_line (id, filedata);
+
+        FOR student_rec IN student_cur
+        LOOP
+            BEGIN
+                filedata :=
+                       student_rec.user_name
+                    || v_delim
+                    || student_rec.user_first_name
+                    || v_delim
+                    || student_rec.user_last_name
+                    || v_delim
+                    || student_rec.user_middle_name
+                    || v_delim
+                    || student_rec.user_email
+                    || v_delim
+                    || student_rec.user_dob
+                    || v_delim
+                    || student_rec.user_sex
+                    || v_delim
+                    || student_rec.user_confidentiality;
+
+                UTL_FILE.put_line (id, filedata);
+            EXCEPTION
+                WHEN OTHERS
+                THEN
+                    DBMS_OUTPUT.put_line (
+                        'TDEXPORT - Bad row creation in file: ' || SQLERRM);
+            END;
+        END LOOP;
+
+        UTL_FILE.fclose (id);
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.put_line ('TDEXPORT - UNKNOWN ERROR: ' || SQLERRM);
+    END;
+
+
+
+    PROCEDURE p_extract_sis_user_info_custom
+    IS
+        v_delim                      VARCHAR2 (1) := CHR (9); --ASCII Character horizonal tab
+
+        --PROCESSING VARIABLES
+        IN_DATA                      UTL_FILE.FILE_TYPE;
+        OUT_DATA                     UTL_FILE.FILE_TYPE;
+
+        v_header                     VARCHAR2 (4096)
+            :=    'UUUID'
+               || v_delim
+               || 'Class_Level'
+               || v_delim
+               || 'Academic_Level'
+               || v_delim
+               || 'Country_of_Citizenship'
+               || v_delim
+               || 'Visa_Status'
+               || v_delim
+               || 'Cell_Number'
+               || v_delim
+               || 'Cumulative_GPA'
+               || v_delim
+               || 'Financial_Hold'
+               || v_delim
+               || 'Academic_Hold'
+               || v_delim
+               || 'Major_1'
+               || v_delim
+               || 'Major_2'
+               || v_delim
+               || 'Option_1'
+               || v_delim
+               || 'Option_2'
+               || v_delim
+               || 'Expected_Graduation_Date'
+               || v_delim
+               || 'Preferred_Name'
+               || v_delim
+               || 'Emergency_Contact'
+               --            || v_delim
+               --            || 'Campus Address'
+               --            || v_delim
+               --            || 'Permanent Address'
+               || v_delim
+               || 'Campus_Address_Line_1'
+               || v_delim
+               || 'Campus_Address_Line_2'
+               || v_delim
+               || 'Campus_Address_Line_3'
+               || v_delim
+               || 'Campus_City'
+               || v_delim
+               || 'Campus_State'
+               || v_delim
+               || 'Campus_Zip'
+               || v_delim
+               || 'Campus_Country'
+               || v_delim
+               || 'Perm_Address_Line_1'
+               || v_delim
+               || 'Perm_Address_Line_2'
+               || v_delim
+               || 'Perm_Address_Line_3'
+               || v_delim
+               || 'Perm_City'
+               || v_delim
+               || 'Perm_State'
+               || v_delim
+               || 'Perm_Zip'
+               || v_delim
+               || 'Perm_Country';
+
+
+        v_in_file_name               VARCHAR2 (30) := 'studyabroad_usu_edu_pool.txt';
+        --getting specifc filename from chelsey
+        v_out_file_name              VARCHAR2 (30) := 'sis_user_info_custom.txt';
+
+        v_filedata                   VARCHAR2 (32767);
+        v_newline                    VARCHAR2 (256);
+        v_rec_count                  NUMBER (6) := 0;
+        --v_update_count               NUMBER (6) := 0;
+
+        --EXTRACT VARIABLES
+        v_term_code                  VARCHAR2 (6) := CASANDRA.F_FETCH_TERM;
+        v_pidm                       spriden.spriden_pidm%TYPE;
+        v_UUUID                      spriden.spriden_id%TYPE;
+        v_Class_Level                VARCHAR2 (2);
+        v_Academic_Level             VARCHAR2 (2);
+
+        v_Country_of_Citizenship     VARCHAR2 (64);
+        v_Visa_Status                VARCHAR2 (64);
+        v_Cell_Number                VARCHAR2 (64);
+        v_Cumulative_GPA             VARCHAR2 (64);
+        v_Financial_Hold             VARCHAR2 (64);
+        v_Academic_Hold              VARCHAR2 (64);
+
+        v_Major_1                    VARCHAR2 (64);
+        v_Major_2                    VARCHAR2 (64);
+        v_Option_1                   VARCHAR2 (64);
+        v_Option_2                   VARCHAR2 (64);
+        v_Expected_Graduation_Date   DATE;
+        v_Prefered_Name              VARCHAR2 (128);
+
+        v_Emergency_Contact          VARCHAR2 (512);
+        --v_Campus_Address             VARCHAR2 (512);
+        --v_Permanent_Address          VARCHAR2 (512);
+
+        v_Campus_Address_Line_1      VARCHAR2 (75);
+        v_Campus_Address_Line_2      VARCHAR2 (75);
+        v_Campus_Address_Line_3      VARCHAR2 (75);
+        v_Campus_City                VARCHAR2 (50);
+        v_Campus_State               VARCHAR2 (3);
+        v_Campus_Zip                 VARCHAR2 (30);
+        v_Campus_Country             VARCHAR2 (50);
+        v_Perm_Address_Line_1        VARCHAR2 (75);
+        v_Perm_Address_Line_2        VARCHAR2 (75);
+        v_Perm_Address_Line_3        VARCHAR2 (75);
+        v_Perm_City                  VARCHAR2 (50);
+        v_Perm_State                 VARCHAR2 (3);
+        v_Perm_Zip                   VARCHAR2 (30);
+        v_Perm_Country               VARCHAR2 (50);
+    BEGIN
+        IN_DATA :=
+            UTL_FILE.FOPEN (gv_directory_name,
+                            v_in_file_name,
+                            'r',
+                            32767);
+
+        OUT_DATA :=
+            UTL_FILE.FOPEN (gv_directory_name,
+                            v_out_file_name,
+                            'w',
+                            32767);
+
+        UTL_FILE.PUT_LINE (OUT_DATA, v_header);
+
+        IF UTL_FILE.is_open (IN_DATA)
+        THEN
+            LOOP
+                BEGIN
+                    --FileReadPhase
+                    UTL_FILE.GET_LINE (IN_DATA, v_filedata, 256);
+                EXCEPTION
+                    WHEN NO_DATA_FOUND
+                    THEN
+                        DBMS_OUTPUT.PUT_LINE (
+                            'STATUS - End of File or No Data Found');
+                        --   || SUBSTR (SQLERRM, 1, 200));
+                        --GOTO finish_process;
+                        EXIT;
+                    WHEN OTHERS
+                    THEN
+                        DBMS_OUTPUT.PUT_LINE (
+                               'ERROR - Unhandeled Exception in FileReadPhase '
+                            || SUBSTR (SQLERRM, 1, 200));
+                END;
+
+                BEGIN
+                    v_newline := SUBSTR (v_filedata, 1, 256);
+
+                    IF v_newline IS NULL
+                    THEN
+                        EXIT;
+                    END IF;
+
+                    --remove possible line feed from end of v_newline
+                    v_newline := TRIM (CHR (13) FROM v_newline);
+                EXCEPTION
+                    WHEN OTHERS
+                    THEN
+                        DBMS_OUTPUT.PUT_LINE (
+                               'ERROR - Unhandeled Exception in NewLinePhase '
+                            || SUBSTR (SQLERRM, 1, 200));
+                END;
+
+                BEGIN
+                    --BannerSearchPhase
+
+                    --get student pidm
+                    SELECT spriden_id, spriden_pidm
+                      INTO v_UUUID, v_pidm
+                      FROM spriden
+                     WHERE     spriden_change_ind IS NULL
+                           AND UPPER (spriden_id) = UPPER (v_newline);
+                EXCEPTION
+                    WHEN VALUE_ERROR
+                    THEN
+                        DBMS_OUTPUT.PUT_LINE (
+                               'ERROR - Error in parameters '
+                            || SUBSTR (SQLERRM, 1, 200));
+                        v_pidm := NULL;
+                        v_UUUID := NULL;
+                    WHEN NO_DATA_FOUND
+                    THEN
+                        DBMS_OUTPUT.PUT_LINE (
+                               'ERROR - student PIDM not found for '
+                            || UPPER (v_newline));
+                        v_pidm := NULL;
+                        v_UUUID := NULL;
+                    WHEN TOO_MANY_ROWS
+                    THEN
+                        DBMS_OUTPUT.PUT_LINE (
+                               'ERROR - Multiple PIDMs'
+                            || SUBSTR (SQLERRM, 1, 200));
+                        v_pidm := NULL;
+                        v_UUUID := NULL;
+                    WHEN OTHERS
+                    THEN
+                        DBMS_OUTPUT.PUT_LINE (
+                               'ERROR - Unhandeled Exception in BannerSearchPhase'
+                            || SUBSTR (SQLERRM, 1, 200));
+                END;
+
+                --set variables
+                IF v_pidm IS NOT NULL
+                THEN
+                    v_Academic_Level := f_student_level (v_pidm, v_term_code);
+                    v_Class_Level :=
+                        f_class_calc_fnc (v_pidm,
+                                          v_Academic_Level,
+                                          CASANDRA.F_FETCH_TERM);
+
+                    v_Country_of_Citizenship :=
+                        F_GET_DESC ('STVNATN', f_student_natn (v_pidm));
+                    v_Visa_Status := f_student_visa (v_pidm);
+                    v_Cell_Number := f_student_mobile (v_pidm);
+
+                    v_Cumulative_GPA :=
+                        f_parse (f_concat_as_of_cum_gpa (v_pidm,
+                                                         v_term_code,
+                                                         v_Academic_Level,
+                                                         'O'),
+                                 5,
+                                 '{');
+
+                    v_Financial_Hold := f_holds_financial (v_pidm);
+                    v_Academic_Hold := f_holds_academic (v_pidm);
+
+                    v_Expected_Graduation_Date :=
+                        f_student_record (v_pidm,
+                                          v_term_code,
+                                          v_Major_1,
+                                          v_Major_2);
+
+                    --v_Major_1 := v_Major_1;
+                    --v_Major_2 := v_Major_2;
+
+                    v_Option_1 := f_student_resd (v_pidm, v_term_code);
+                    v_Option_2 :=
+                        f_get_desc_fnc (
+                            'STVCAMP',
+                            z_campus_magic_q.f_calc_majority_campus_code (
+                                v_term_code,
+                                v_pidm),
+                            30);
+
+                    v_Prefered_Name :=
+                        BANINST1.z_f_get_preferred_name (v_pidm, 'FL');
+                    v_Emergency_Contact := f_student_emergency (v_pidm);
+
+                    p_student_address (v_pidm,
+                                       'MA',
+                                       NULL,
+                                       v_Campus_Address_Line_1,
+                                       v_Campus_Address_Line_2,
+                                       v_Campus_Address_Line_3,
+                                       v_Campus_City,
+                                       v_Campus_State,
+                                       v_Campus_Zip,
+                                       v_Campus_Country);
+                    p_student_address (v_pidm,
+                                       'PR',
+                                       NULL,
+                                       v_Perm_Address_Line_1,
+                                       v_Perm_Address_Line_2,
+                                       v_Perm_Address_Line_3,
+                                       v_Perm_City,
+                                       v_Perm_State,
+                                       v_Perm_Zip,
+                                       v_Perm_Country);
+
+                    BEGIN
+                        v_filedata :=
+                               v_UUUID
+                            || v_delim
+                            || v_Class_Level
+                            || v_delim
+                            || v_Academic_Level
+                            || v_delim
+                            || v_Country_of_Citizenship
+                            || v_delim
+                            || v_Visa_Status
+                            || v_delim
+                            || v_Cell_Number
+                            || v_delim
+                            || v_Cumulative_GPA
+                            || v_delim
+                            || v_Financial_Hold
+                            || v_delim
+                            || v_Academic_Hold
+                            || v_delim
+                            || v_Major_1
+                            || v_delim
+                            || v_Major_2
+                            || v_delim
+                            || v_Option_1
+                            || v_delim
+                            || v_Option_2
+                            || v_delim
+                            || v_Expected_Graduation_Date
+                            || v_delim
+                            || v_Prefered_Name
+                            || v_delim
+                            || v_Emergency_Contact
+                            -- || v_delim
+                            -- || v_Campus_Address
+                            -- || v_delim
+                            -- || v_Permanent_Address
+                            || v_delim
+                            || v_Campus_Address_Line_1
+                            || v_delim
+                            || v_Campus_Address_Line_2
+                            || v_delim
+                            || v_Campus_Address_Line_3
+                            || v_delim
+                            || v_Campus_City
+                            || v_delim
+                            || v_Campus_State
+                            || v_delim
+                            || v_Campus_Zip
+                            || v_delim
+                            || v_Campus_Country
+                            || v_delim
+                            || v_Perm_Address_Line_1
+                            || v_delim
+                            || v_Perm_Address_Line_2
+                            || v_delim
+                            || v_Perm_Address_Line_3
+                            || v_delim
+                            || v_Perm_City
+                            || v_delim
+                            || v_Perm_State
+                            || v_delim
+                            || v_Perm_Zip
+                            || v_delim
+                            || v_Perm_Country;
+
+                        UTL_FILE.put_line (OUT_DATA, v_filedata);
+                        v_rec_count := v_rec_count + 1;
+                    EXCEPTION
+                        WHEN OTHERS
+                        THEN
+                            DBMS_OUTPUT.put_line (
+                                   'TDEXPORT - Bad row creation in file: '
+                                || SQLERRM);
+                    END;
+                END IF;
+            END LOOP;
+
+           <<finish_process>>
+            DBMS_OUTPUT.PUT_LINE (
+                'STATUS - Total Records Processed - ' || v_rec_count);
+
+            UTL_FILE.FCLOSE (IN_DATA);
+            UTL_FILE.FCLOSE (OUT_DATA);
+        END IF;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                'TDEXPORT - Unhandeled Exception Out of Phase: ' || SQLERRM);
+    END;
+
+    PROCEDURE p_applications_manager
+    AS
+    BEGIN
+        p_extract_sis_user_info_core;
+        p_extract_hr_user_info_core;
+        p_extract_sis_user_info_custom;
+    END;
+END z_terra_dotta_interface;
+/
