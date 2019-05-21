@@ -1,21 +1,21 @@
-/* Formatted on 5/21/2019 9:14:06 AM (QP5 v5.336) */
+/* Formatted on 5/21/2019 1:04:57 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
 
-       REVISIONS:
-       Date       Author           Description
-       ---------  ---------------  ------------------------------------
-       20160617   Carl Ellsworth   created this package from z_student_etl
-       20160620   Carl Ellsworth   added p_extract_sis_user_info_custom
-       20160622   Carl Ellsworth   split out individual address fields
-       20160623   Carl Ellsworth   updated file names to match vendor spec
-       20170103   Carl Ellsworth   added error handling to track down issues
-       20170406   Carl Ellsworth   removed unessesary SQLERRM causing APPMANAGER GRIEF
-       20170511   Carl Ellsworth   Option1 field now populated with residency
-       20170908   Carl Ellsworth   updated term function calls
-       20180524   Carl Ellsworth   added custom call for majority campus
-       20180926   Carl Ellsworth   updated major2 field with college as requested
+    REVISIONS:
+    Date       Author           Description
+    ---------  ---------------  ------------------------------------
+    20160617   Carl Ellsworth   created this package from z_student_etl
+    20160620   Carl Ellsworth   added p_extract_sis_user_info_custom
+    20160622   Carl Ellsworth   split out individual address fields
+    20160623   Carl Ellsworth   updated file names to match vendor spec
+    20170103   Carl Ellsworth   added error handling to track down issues
+    20170406   Carl Ellsworth   removed unessesary SQLERRM causing APPMANAGER GRIEF
+    20170511   Carl Ellsworth   Option1 field now populated with residency
+    20170908   Carl Ellsworth   updated term function calls
+    20180524   Carl Ellsworth   added custom call for majority campus
+    20180926   Carl Ellsworth   updated major2 field with college as requested
 
     ***************************************************************************/
 
@@ -215,9 +215,9 @@ AS
           INTO rtn_visa
           FROM gorvisa
          WHERE     gorvisa_pidm = p_pidm
-               AND gorvisa_seq_no = (SELECT MAX (gorvisa_seq_no)
-                                       FROM gorvisa beta
-                                      WHERE beta.gorvisa_pidm = p_pidm);
+               AND gorvisa_seq_no = (SELECT MAX (bravo.gorvisa_seq_no)
+                                       FROM gorvisa bravo
+                                      WHERE bravo.gorvisa_pidm = p_pidm);
 
         RETURN rtn_visa;
     EXCEPTION
@@ -228,6 +228,55 @@ AS
                 || SQLERRM);
             RAISE;
     END f_student_visa;
+
+
+    /**
+    * Retrieves the TD translated SEVIS-Required Code
+    *
+    * Visa Type
+    * SEVIS-Required Codes Code Description
+    * 01 F-1
+    * 04 F-2
+    * 03 J-1
+    * 06 J-2
+    * 02 M-1
+    * 05 M-2
+    *
+    * When the visa type code is any other type, the code is returned untranslated.
+    *
+    * @param    p_pidm     student pidm for lookup
+    * @return   rtn_visa   TD acceptable SEVIS visa code
+    */
+    FUNCTION f_isss_visa (p_pidm gorvisa.gorvisa_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_visa   VARCHAR2 (2);
+    BEGIN
+        SELECT DECODE (gorvisa_vtyp_code,
+                       'F1', '01',
+                       'F2', '04',
+                       'J1', '03',
+                       'J2', '06',
+                       gorvisa_vtyp_code)
+          INTO rtn_visa
+          FROM gorvisa
+         WHERE     gorvisa_pidm = p_pidm
+               AND gorvisa_seq_no = (SELECT MAX (bravo.gorvisa_seq_no)
+                                       FROM gorvisa bravo
+                                      WHERE bravo.gorvisa_pidm = p_pidm);
+
+        RETURN rtn_visa;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving ISSS Visa: '
+                || SQLERRM);
+            RAISE;
+    END f_isss_visa;
 
     FUNCTION f_student_natn (p_pidm gobintl.gobintl_pidm%TYPE)
         RETURN VARCHAR2
@@ -746,10 +795,10 @@ AS
                || 'Preferred_Name'
                || v_delim
                || 'Emergency_Contact'
-               --            || v_delim
-               --            || 'Campus Address'
-               --            || v_delim
-               --            || 'Permanent Address'
+               -- || v_delim
+               -- || 'Campus Address'
+               -- || v_delim
+               -- || 'Permanent Address'
                || v_delim
                || 'Campus_Address_Line_1'
                || v_delim
@@ -1080,12 +1129,300 @@ AS
                 'TDEXPORT - Unhandeled Exception Out of Phase: ' || SQLERRM);
     END;
 
+
+
     PROCEDURE p_applications_manager
     AS
     BEGIN
         p_extract_sis_user_info_core;
         p_extract_hr_user_info_core;
         p_extract_sis_user_info_custom;
+    END;
+
+    /**
+    * Translates the Banner suffix field to a TD accepted value
+    *
+    * Name Suffix
+    * SEVIS-Required Codes Code Description
+    * I First
+    * II Second
+    * III Third
+    * IV Fourth
+    * Jr. Junior
+    * Sr. Senior
+    *
+    * @param    p_name_suffix   Banner suffix to parse
+    * @return   rtn_td_suffix   TD acceptable suffix value
+    */
+    FUNCTION f_isss_translate_suffix (
+        p_name_suffix   spapers.spbpers_name_suffix%TYPE)
+        RETURN VARCHAR2
+    AS
+        lv_td_suffix   VARCHAR2 (5);
+    BEGIN
+        lv_td_suffix :=
+            CASE
+                WHEN p_name_suffix IS NULL
+                THEN
+                    NULL
+                WHEN TRIM (UPPER (p_name_suffix)) IN ('I', '1', '1ST')
+                THEN
+                    'I'
+                WHEN TRIM (UPPER (p_name_suffix)) IN ('II',
+                                                      '11',
+                                                      '2',
+                                                      '2ND')
+                THEN
+                    'II'
+                WHEN TRIM (UPPER (p_name_suffix)) IN ('III',
+                                                      '111',
+                                                      '3',
+                                                      '3RD')
+                THEN
+                    'III'
+                WHEN TRIM (UPPER (p_name_suffix)) IN ('IV', '4', '4TH')
+                THEN
+                    'IV'
+                WHEN TRIM (UPPER (p_name_suffix)) IN ('JR',
+                                                      'J R',
+                                                      'JR.',
+                                                      'JUN',
+                                                      'JUN.',
+                                                      'JUNIOR')
+                THEN
+                    'Jr.'
+                WHEN TRIM (UPPER (p_name_suffix)) IN ('SR',
+                                                      'S R',
+                                                      'SR.',
+                                                      'SEN',
+                                                      'SEN.',
+                                                      'SENIOR')
+                THEN
+                    'Sr.'
+                ELSE
+                    NULL
+            END;
+
+        RETURN lv_td_suffix;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Translating Name Suffix: '
+                || SQLERRM);
+            RAISE;
+    END f_isss_translate_suffix;
+
+    PROCEDURE p_isss_extract_sis_user_info
+    IS
+        v_delim                         VARCHAR2 (1) := CHR (9); --ASCII Character horizonal tab
+
+        --PROCESSING VARIABLES
+        id                              UTL_FILE.file_type;
+        filedata                        VARCHAR2 (20000);
+
+        CURSOR student_cur IS
+            (SELECT spriden_pidm
+                        pidm,
+                    spriden_id
+                        UUUID,
+                    SUBSTR (spriden_last_name, 1, 50)
+                        LAST_NAME,
+                    SUBSTR (spriden_first_name, 1, 50)
+                        FIRST_NAME,
+                    SUBSTR (spriden_mi, 1, 50)
+                        MIDDLE_NAME,
+                    SUBSTR (goremal_email_address, 1, 250)
+                        EMAIL,
+                    TO_CHAR (spbpers_birth_date, 'mm/dd/yyyy')
+                        DOB,
+                    DECODE (spbpers_sex,  'M', 'M',  'F', 'F',  'O')
+                        GENDER,
+                    COALESCE (spbpers_confid_ind, 'N')
+                        CONFIDENTIALITY_IND,
+                    f_isss_translate_suffix (spbpers_name_suffix)
+                        SUFFIX,
+                    f_isss_visa (spriden_pidm)
+                        VISA_TYPE
+               FROM (SELECT DISTINCT saradap_pidm     pidm
+                       FROM saradap                       --admissions records
+                      WHERE saradap_term_code_entry IN
+                                (SELECT term_code
+                                   FROM TABLE (F_LIST_ACTIVETERMS))
+                     UNION
+                     SELECT DISTINCT sfrstcr_pidm     pidm
+                       FROM sfrstcr                     --registration records
+                      WHERE sfrstcr_term_code IN
+                                (SELECT term_code
+                                   FROM TABLE (F_LIST_ACTIVETERMS)))
+                    population
+                    JOIN spriden
+                        ON spriden_pidm = pidm AND spriden_change_ind IS NULL
+                    LEFT JOIN spbpers ON spbpers_pidm = pidm
+                    LEFT JOIN goremal
+                        ON     goremal_pidm = pidm
+                           AND goremal_status_ind = 'A'
+                           AND goremal_preferred_ind = 'Y'
+                    LEFT JOIN gobintl ON gobintl_pidm = pidm
+                    LEFT JOIN saradap
+                        ON     saradap_pidm = pidm
+                           AND saradap_appl_date =
+                               (SELECT MAX (bravo.saradap_appl_date)
+                                  FROM saradap bravo
+                                 WHERE bravo.saradap_pidm =
+                                       saradap.saradap_pidm)
+              WHERE     SARADAP_RESD_CODE = 'I'
+                    AND GOBINTL_NATN_CODE_LEGAL <> 'US');
+
+        cur                             INTEGER;
+        ret                             INTEGER;
+
+        --FILE PROCESSING VARIABLES
+        v_directory                     VARCHAR2 (30) := 'TERRADOTTA';
+        v_file_name                     VARCHAR2 (30) := 'sis_user_info.txt';
+
+        --EXTRACT VARIABLES
+        lv_term_code                    VARCHAR2 (6) := CASANDRA.F_FETCH_TERM;
+        --lv_pidm                         spriden.spriden_pidm%TYPE;
+        --lv_UUUID                        spriden.spriden_id%TYPE;
+        --lv_LAST_NAME                    VARCHAR2 (50);
+        --lv_FIRST_NAME                   VARCHAR2 (50);
+        --lv_MIDDLE_NAME                  VARCHAR2 (50);
+        --lv_EMAIL                        VARCHAR2 (250);
+        --lv_DOB                          DATE;
+        --lv_GENDER                       VARCHAR2 (1);
+        --lv_CONFIDENTIALITY_IND          VARCHAR2 (1);
+        lv_HR_FLAG                      VARCHAR2 (1) := NULL; --TODO: work with Steven Clark to determine HR flag
+        --lv_SUFFIX                       VARCHAR2 (10);
+        --lv_VISA_TYPE                    VARCHAR2 (2);
+        lv_MAJOR_CIP                    VARCHAR2 (7) := '00.000';
+        lv_SECOND_MAJOR_CIP             VARCHAR2 (7) := '00.000';
+        lv_MINOR_CIP                    VARCHAR2 (7) := '00.000';
+        lv_EDUCATION_LEVEL              VARCHAR2 (2);
+        lv_BIRTH_COUNTRY                VARCHAR2 (2);
+        lv_CITIZENSHIP_COUNTRY          VARCHAR2 (2);
+        lv_FOREIGN_PHONE_COUNTRY_CODE   VARCHAR2 (4);
+        lv_FOREIGN_PHONE                VARCHAR2 (20);
+        lv_US_PHONE                     VARCHAR2 (10);
+        lv_PERM_RESIDENT_COUNTRY        VARCHAR2 (2);
+        lv_US_ADDRESS_LINE1             VARCHAR2 (64);
+        lv_US_ADDRESS_LINE2             VARCHAR2 (64);
+        lv_US_ADDRESS_CITY              VARCHAR2 (50);
+        lv_US_ADDRESS_STATE             VARCHAR2 (2);
+        lv_US_ADDRESS_ZIP               VARCHAR2 (5);
+        lv_FOREIGN_ADDRESS_LINE1        VARCHAR2 (64);
+        lv_FOREIGN_ADDRESS_LINE2        VARCHAR2 (64);
+        lv_FOREIGN_ADDRESS_CITY         VARCHAR2 (50);
+        lv_FOREIGN_ADDRESS_PROVINCE     VARCHAR2 (2);
+        lv_FOREIGN_ADDRESS_POSTALCODE   VARCHAR2 (20);
+        lv_FOREIGN_ADDRESS_COUNTRY      VARCHAR2 (2);
+        lv_US_MAILING_ADDRESS_LINE1     VARCHAR2 (64);
+        lv_US_MAILING_ADDRESS_LINE2     VARCHAR2 (64);
+        lv_US_MAILING_ADDRESS_CITY      VARCHAR2 (50);
+        lv_US_MAILING_ADDRESS_STATE     VARCHAR2 (2);
+        lv_US_MAILING_ADDRESS_ZIP       VARCHAR2 (5);
+        lv_MAJOR1_DEPT                  VARCHAR2 (500);
+        lv_MAJOR2_DEPT                  VARCHAR2 (500);
+        lv_MAJOR1_DESC                  VARCHAR2 (500);
+        lv_MAJOR2_DESC                  VARCHAR2 (500);
+        lv_MINOR_DEPT                   VARCHAR2 (500);
+        lv_MINOR_DESC                   VARCHAR2 (500);
+        lv_ENROLL_COLLEGE               VARCHAR2 (500);
+        lv_STUDENT_ID                   VARCHAR2 (500);
+        lv_ADVISOR_NAME                 VARCHAR2 (500);
+        lv_ADVISOR_EMAIL                VARCHAR2 (500);
+        lv_LANGUAGE_TEST1               VARCHAR2 (500);
+        lv_LANGUAGE_TEST2               VARCHAR2 (500);
+        lv_CREDITS_TOTAL                NUMBER (11, 3);
+        lv_CREDITS_CAMPUS               NUMBER (11, 3);
+        lv_CREDITS_ONLINE               NUMBER (11, 3);
+        lv_CREDITS_ESL                  NUMBER (11, 3);
+        lv_FULL_TIME                    VARCHAR2 (500);
+        lv_CREDITS_TERM                 VARCHAR2 (6);
+        lv_CREDITS_EARNED               NUMBER (11, 3);
+        lv_UNDERGRAD_LEVEL              VARCHAR2 (2);
+        lv_APPLIED_GRADUATION           VARCHAR2 (1);
+        lv_GRAD_DATE                    DATE;
+        lv_ACADEMIC_DEFICIENCY          VARCHAR2 (500);
+        lv_FINANCIAL_HOLD               VARCHAR2 (64);
+        lv_CONDUCT_HOLD                 VARCHAR2 (64);
+        lv_CUM_GPA                      shrlgpa.SHRLGPA_GPA%TYPE;
+        lv_ADMIT_TERM                   VARCHAR2 (500);
+        lv_MARITAL_STATUS               VARCHAR2 (500);
+        lv_PREFERRED_NAME               VARCHAR2 (500);
+        lv_PREFERRED_GENDER             VARCHAR2 (500);
+        lv_CUSTOM1                      VARCHAR2 (500);
+        lv_CUSTOM2                      VARCHAR2 (500);
+        lv_CUSTOM3                      VARCHAR2 (500);
+        lv_CUSTOM4                      VARCHAR2 (500);
+        lv_CUSTOM5                      VARCHAR2 (500);
+        lv_CUSTOM6                      VARCHAR2 (500);
+        lv_CUSTOM7                      VARCHAR2 (500);
+        lv_CUSTOM8                      VARCHAR2 (500);
+        lv_CUSTOM9                      VARCHAR2 (500);
+        lv_CUSTOM10                     VARCHAR2 (500);
+    BEGIN
+        id :=
+            UTL_FILE.fopen (v_directory,
+                            v_file_name,
+                            'w',
+                            20000);
+
+        --  HEADER RECORD
+        filedata :=
+               'UUUID'
+            || v_delim
+            || 'First_Name'
+            || v_delim
+            || 'Last_Name'
+            || v_delim
+            || 'Middle_Name'
+            || v_delim
+            || 'Email'
+            || v_delim
+            || 'DOB'
+            || v_delim
+            || 'Gender'
+            || v_delim
+            || 'Confidentiality_Indicator';
+
+        --output header record
+        UTL_FILE.put_line (id, filedata);
+
+        FOR student_rec IN student_cur
+        LOOP
+            BEGIN
+                filedata :=
+                       student_rec.user_name
+                    || v_delim
+                    || student_rec.user_first_name
+                    || v_delim
+                    || student_rec.user_last_name
+                    || v_delim
+                    || student_rec.user_middle_name
+                    || v_delim
+                    || student_rec.user_email
+                    || v_delim
+                    || student_rec.user_dob
+                    || v_delim
+                    || student_rec.user_sex
+                    || v_delim
+                    || student_rec.user_confidentiality;
+
+                UTL_FILE.put_line (id, filedata);
+            EXCEPTION
+                WHEN OTHERS
+                THEN
+                    DBMS_OUTPUT.put_line (
+                        'TDEXPORT - Bad row creation in file: ' || SQLERRM);
+            END;
+        END LOOP;
+
+        UTL_FILE.fclose (id);
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.put_line ('TDEXPORT - UNKNOWN ERROR: ' || SQLERRM);
     END;
 END z_terra_dotta_interface;
 /
