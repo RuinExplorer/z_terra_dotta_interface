@@ -1,4 +1,4 @@
-/* Formatted on 5/21/2019 4:19:34 PM (QP5 v5.336) */
+/* Formatted on 5/22/2019 3:49:05 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -1126,7 +1126,7 @@ AS
     * @return   rtn_td_suffix   TD acceptable suffix value
     */
     FUNCTION f_isss_translate_suffix (
-        p_name_suffix   spapers.spbpers_name_suffix%TYPE)
+        p_name_suffix   spbpers.spbpers_name_suffix%TYPE)
         RETURN VARCHAR2
     AS
         lv_td_suffix   VARCHAR2 (5);
@@ -1261,10 +1261,8 @@ AS
                         GENDER,
                     COALESCE (spbpers_confid_ind, 'N')
                         CONFIDENTIALITY_IND,
-                    f_isss_translate_suffix (spbpers_name_suffix)
-                        SUFFIX,
-                    f_isss_visa (spriden_pidm)
-                        VISA_TYPE,
+                    spbpers_name_suffix
+                        banner_suffix,
                     (SELECT stvnatn_sevis_equiv
                        FROM stvnatn
                       WHERE stvnatn_code = gobintl_natn_code_birth)
@@ -1279,8 +1277,8 @@ AS
                         PERM_RESIDENT_COUNTRY,
                     spriden_id
                         STUDENT_ID,
-                    F_GET_DESC ('STVMRTL', sbprpers_mrtl_code)
-                        MARITAL_STATUS,
+                    spbpers_mrtl_code
+                        banner_mrtl_code,
                     spbpers_pref_first_name
                         PREFERRED_NAME,
                     spbpers_gndr_code
@@ -1334,16 +1332,16 @@ AS
         --lv_GENDER                       VARCHAR2 (1);
         --lv_CONFIDENTIALITY_IND          VARCHAR2 (1);
         lv_HR_FLAG                      VARCHAR2 (1) := NULL; --TODO: work with Steven Clark to determine HR flag
-        --lv_SUFFIX                       VARCHAR2 (10);
-        --lv_VISA_TYPE                    VARCHAR2 (2);
-        lv_MAJOR_CIP                    VARCHAR2 (7) := '00.000';       --TODO
-        lv_SECOND_MAJOR_CIP             VARCHAR2 (7) := '00.000';       --TODO
-        lv_MINOR_CIP                    VARCHAR2 (7) := '00.000';       --TODO
-        lv_EDUCATION_LEVEL              VARCHAR2 (2);                   --TODO
+        lv_SUFFIX                       VARCHAR2 (10);
+        lv_VISA_TYPE                    VARCHAR2 (2);
+        lv_MAJOR_CIP                    VARCHAR2 (7);
+        lv_SECOND_MAJOR_CIP             VARCHAR2 (7);
+        lv_MINOR_CIP                    VARCHAR2 (7);
+        lv_EDUCATION_LEVEL              VARCHAR2 (2);
         --lv_BIRTH_COUNTRY                VARCHAR2 (2);
         --lv_CITIZENSHIP_COUNTRY          VARCHAR2 (2);
-        lv_FOREIGN_PHONE_COUNTRY_CODE   VARCHAR2 (4);
-        lv_FOREIGN_PHONE                VARCHAR2 (20);
+        lv_FOREIGN_PHONE_COUNTRY_CODE   VARCHAR2 (4) := NULL;
+        lv_FOREIGN_PHONE                VARCHAR2 (20) := NULL;
         lv_US_PHONE                     VARCHAR2 (10);
         --lv_PERM_RESIDENT_COUNTRY        VARCHAR2 (2);
 
@@ -1364,13 +1362,13 @@ AS
         lv_US_MAILING_ADDRESS_STATE     VARCHAR2 (2);
         lv_US_MAILING_ADDRESS_ZIP       VARCHAR2 (5);
 
-        lv_MAJOR1_DEPT                  VARCHAR2 (500);                 --TODO
-        lv_MAJOR2_DEPT                  VARCHAR2 (500);                 --TODO
-        lv_MAJOR1_DESC                  VARCHAR2 (500);                 --TODO
-        lv_MAJOR2_DESC                  VARCHAR2 (500);                 --TODO
-        lv_MINOR_DEPT                   VARCHAR2 (500);                 --TODO
-        lv_MINOR_DESC                   VARCHAR2 (500);                 --TODO
-        lv_ENROLL_COLLEGE               VARCHAR2 (500);                 --TODO
+        lv_MAJOR1_DEPT                  VARCHAR2 (500);
+        lv_MAJOR2_DEPT                  VARCHAR2 (500) := NULL;
+        lv_MAJOR1_DESC                  VARCHAR2 (500);
+        lv_MAJOR2_DESC                  VARCHAR2 (500);
+        lv_MINOR_DEPT                   VARCHAR2 (500) := NULL;
+        lv_MINOR_DESC                   VARCHAR2 (500);
+        lv_ENROLL_COLLEGE               VARCHAR2 (500);
         --lv_STUDENT_ID                   VARCHAR2 (500);
         lv_ADVISOR_NAME                 VARCHAR2 (500);                 --TODO
         lv_ADVISOR_EMAIL                VARCHAR2 (500);                 --TODO
@@ -1381,9 +1379,9 @@ AS
         lv_CREDITS_ONLINE               NUMBER (11, 3);                 --TODO
         lv_CREDITS_ESL                  NUMBER (11, 3);                 --TODO
         lv_FULL_TIME                    VARCHAR2 (500);                 --TODO
-        lv_CREDITS_TERM                 VARCHAR2 (6);                   --TODO
+        lv_CREDITS_TERM                 VARCHAR2 (6) := CASANDRA.F_FETCH_TERM;
         lv_CREDITS_EARNED               NUMBER (11, 3);                 --TODO
-        lv_UNDERGRAD_LEVEL              VARCHAR2 (2);                   --TODO
+        lv_UNDERGRAD_LEVEL              VARCHAR2 (2);
         lv_APPLIED_GRADUATION           VARCHAR2 (1);                   --TODO
         lv_GRAD_DATE                    DATE;                           --TODO
         lv_ACADEMIC_DEFICIENCY          VARCHAR2 (500);                 --TODO
@@ -1391,7 +1389,7 @@ AS
         lv_CONDUCT_HOLD                 VARCHAR2 (64);                  --TODO
         lv_CUM_GPA                      shrlgpa.SHRLGPA_GPA%TYPE;       --TODO
         lv_ADMIT_TERM                   VARCHAR2 (500);                 --TODO
-        --lv_MARITAL_STATUS               VARCHAR2 (500);
+        lv_MARITAL_STATUS               VARCHAR2 (500);
         --lv_PREFERRED_NAME               VARCHAR2 (500);
         --lv_PREFERRED_GENDER             VARCHAR2 (500);
         lv_CUSTOM1                      VARCHAR2 (500);                 --TODO
@@ -1408,6 +1406,8 @@ AS
         --processing variables
         lv_banner_line3                 VARCHAR2 (64);
         lv_banner_country               VARCHAR2 (64);
+        lv_banner_class_code            VARCHAR2 (64);
+        lv_banner_degree_code           VARCHAR2 (64);
     BEGIN
         id :=
             UTL_FILE.fopen (v_directory,
@@ -1419,19 +1419,19 @@ AS
         filedata :=
                'UUUID'
             || v_delim
-            || 'First_Name'
+            || 'LAST_NAME'
             || v_delim
-            || 'Last_Name'
+            || 'FIRST_NAME'
             || v_delim
-            || 'Middle_Name'
+            || 'MIDDLE_NAME'
             || v_delim
-            || 'Email'
+            || 'EMAIL'
             || v_delim
             || 'DOB'
             || v_delim
-            || 'Gender'
+            || 'GENDER'
             || v_delim
-            || 'Confidentiality_Indicator';
+            || 'CONFIDENTIALITY_IND';
 
         --output header record
         UTL_FILE.put_line (id, filedata);
@@ -1439,7 +1439,13 @@ AS
         FOR student_rec IN student_cur
         LOOP
             BEGIN
-                p_student_address (v_pidm,
+                lv_SUFFIX :=
+                    f_isss_translate_suffix (student_rec.banner_suffix);
+                lv_VISA_TYPE := f_isss_visa (student_rec.pidm);
+                lv_MARITAL_STATUS :=
+                    F_GET_DESC ('STVMRTL', student_rec.banner_mrtl_code);
+
+                p_student_address (student_rec.pidm,
                                    'MA',
                                    NULL,
                                    lv_US_ADDRESS_LINE1,
@@ -1450,7 +1456,7 @@ AS
                                    lv_US_ADDRESS_ZIP,
                                    lv_banner_country);
 
-                p_student_address (v_pidm,
+                p_student_address (student_rec.pidm,
                                    'PR',
                                    NULL,
                                    lv_US_ADDRESS_LINE1,
@@ -1461,7 +1467,7 @@ AS
                                    lv_US_ADDRESS_ZIP,
                                    lv_banner_country);
 
-                BEGIN
+                BEGIN                         --foreign address country lookup
                     SELECT stvnatn_sevis_equiv
                       INTO lv_FOREIGN_ADDRESS_COUNTRY
                       FROM stvnatn
@@ -1472,7 +1478,7 @@ AS
                         lv_FOREIGN_ADDRESS_COUNTRY := NULL;
                 END;
 
-                p_student_address (v_pidm,
+                p_student_address (student_rec.pidm,
                                    'MA',
                                    NULL,
                                    lv_US_MAILING_ADDRESS_LINE1,
@@ -1484,24 +1490,157 @@ AS
                                    lv_banner_country);
 
                 lv_US_PHONE :=
-                    f_student_phone (p_pidm => v_pidm, p_tele_code => 'MA');
+                    f_student_phone (p_pidm        => student_rec.pidm,
+                                     p_tele_code   => 'MA');
+
+                --STUDENT ACADEMICS BLOCK
+                BEGIN
+                    SELECT                     --sgbstdn_levl_code level_code,
+                           f_class_calc_fnc (PIDM        => sgbstdn_pidm,
+                                             LEVL_CODE   => sgbstdn_levl_code,
+                                             TERM_CODE   => lv_term_code)
+                               class_code,
+                           CASE
+                               WHEN sgbstdn_coll_code_1 IS NOT NULL
+                               THEN
+                                      sgbstdn_coll_code_1
+                                   || ' - '
+                                   || stvcoll_desc
+                               ELSE
+                                   NULL
+                           END
+                               enroll_college,
+                           CASE
+                               WHEN sgbstdn_dept_code IS NOT NULL
+                               THEN
+                                   sgbstdn_dept_code || ' - ' || stvdept_desc
+                               ELSE
+                                   NULL
+                           END
+                               MAJOR1_DEPT,
+                           sgbstdn_degc_code_1
+                               degree_code,
+                           --stvdegc_desc degree_desc,
+                           CASE
+                               WHEN sgbstdn_majr_code_1 IS NOT NULL
+                               THEN
+                                      sgbstdn_majr_code_1
+                                   || ' - '
+                                   || major1.stvmajr_desc
+                               ELSE
+                                   NULL
+                           END
+                               major1_desc,
+                           major1.stvmajr_cipc_code
+                               major1_cipc,
+                           CASE
+                               WHEN sgbstdn_majr_code_2 IS NOT NULL
+                               THEN
+                                      sgbstdn_majr_code_2
+                                   || ' - '
+                                   || major2.stvmajr_desc
+                               ELSE
+                                   NULL
+                           END
+                               major2_desc,
+                           major2.stvmajr_cipc_code
+                               major2_cipc,
+                           CASE
+                               WHEN sgbstdn_majr_code_minr_1 IS NOT NULL
+                               THEN
+                                      sgbstdn_majr_code_minr_1
+                                   || ' - '
+                                   || minor.stvmajr_desc
+                               ELSE
+                                   NULL
+                           END
+                               minor_desc,
+                           minor.stvmajr_cipc_code
+                               minor_cpic,
+                           CASE
+                               WHEN sgbstdn_leav_code IS NOT NULL
+                               THEN
+                                   sgbstdn_leav_code || ' - ' || stvleav_desc
+                               ELSE
+                                   NULL
+                           END
+                               leave_reason
+                      INTO lv_banner_class_code,
+                           lv_ENROLL_COLLEGE,
+                           lv_MAJOR1_DEPT,
+                           lv_banner_degree_code,
+                           lv_MAJOR1_DESC,
+                           lv_MAJOR_CIP,
+                           lv_MAJOR2_DESC,
+                           lv_SECOND_MAJOR_CIP,
+                           lv_MINOR_DESC,
+                           lv_MINOR_CIP,
+                           lv_CUSTOM9                           --leave_reason
+                      FROM sgbstdn
+                           LEFT JOIN stvcoll
+                               ON sgbstdn_coll_code_1 = stvcoll_code
+                           LEFT JOIN stvdept
+                               ON sgbstdn_dept_code = stvdept_code
+                           LEFT JOIN stvdegc
+                               ON sgbstdn_degc_code_1 = stvdegc_code
+                           LEFT JOIN stvmajr major1
+                               ON sgbstdn_majr_code_1 = major1.stvmajr_code
+                           LEFT JOIN stvmajr major2
+                               ON sgbstdn_majr_code_2 = major2.stvmajr_code
+                           LEFT JOIN stvmajr minor
+                               ON sgbstdn_majr_code_minr_1 =
+                                  minor.stvmajr_code
+                           LEFT JOIN stvleav
+                               ON sgbstdn_leav_code = stvleav_code
+                     WHERE     sgbstdn_term_code_eff =
+                               (SELECT MAX (delta.sgbstdn_term_code_eff)
+                                  FROM sgbstdn delta
+                                 WHERE     delta.sgbstdn_pidm =
+                                           sgbstdn.sgbstdn_pidm
+                                       AND delta.sgbstdn_term_code_eff <=
+                                           lv_term_code)
+                           AND sgbstdn_pidm = student_rec.pidm;
+
+                    --TODO tranlsate lv_UNDERGRAD_LEVEL from class_code
+                    lv_UNDERGRAD_LEVEL := NULL;
+
+                    --TODO translate lv_EDUCATION_LEVEL from degree_code
+                    lv_EDUCATION_LEVEL := NULL;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND
+                    THEN
+                        lv_ENROLL_COLLEGE := NULL;
+                        lv_MAJOR1_DEPT := NULL;
+                        lv_MAJOR1_DESC := NULL;
+                        lv_MAJOR_CIP := NULL;
+                        lv_MAJOR2_DESC := NULL;
+                        lv_SECOND_MAJOR_CIP := NULL;
+                        lv_MINOR_DESC := NULL;
+                        lv_MINOR_CIP := NULL;
+                        lv_CUSTOM9 := NULL;
+                        lv_UNDERGRAD_LEVEL := NULL;
+                        lv_EDUCATION_LEVEL := NULL;
+                        DBMS_OUTPUT.put_line (
+                               'ERROR: No student record found for '
+                            || student_rec.UUUID);
+                END;
 
                 filedata :=
-                       student_rec.user_name
+                       student_rec.UUUID
                     || v_delim
-                    || student_rec.user_first_name
+                    || student_rec.LAST_NAME
                     || v_delim
-                    || student_rec.user_last_name
+                    || student_rec.FIRST_NAME
                     || v_delim
-                    || student_rec.user_middle_name
+                    || student_rec.MIDDLE_NAME
                     || v_delim
-                    || student_rec.user_email
+                    || student_rec.EMAIL
                     || v_delim
-                    || student_rec.user_dob
+                    || student_rec.DOB
                     || v_delim
-                    || student_rec.user_sex
+                    || student_rec.GENDER
                     || v_delim
-                    || student_rec.user_confidentiality;
+                    || student_rec.CONFIDENTIALITY_IND;
 
                 UTL_FILE.put_line (id, filedata);
             EXCEPTION
