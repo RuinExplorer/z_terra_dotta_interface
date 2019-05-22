@@ -1,4 +1,4 @@
-/* Formatted on 5/21/2019 1:04:57 PM (QP5 v5.336) */
+/* Formatted on 5/21/2019 4:19:34 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -91,42 +91,15 @@ AS
                                  out_stat_code      OUT VARCHAR2,
                                  out_zip            OUT VARCHAR2,
                                  out_natn_code      OUT VARCHAR2)
-    /*
-        RETURN VARCHAR2
-     IS
-        v_address   VARCHAR2 (256);
-    */
     AS
     BEGIN
-        SELECT /*
-                      spraddr_street_line1
-                      || ', '
-                      || CASE
-                            WHEN spraddr_street_line2 IS NULL THEN ''
-                            ELSE spraddr_street_line2 || ', '
-                         END
-                      || CASE
-                            WHEN spraddr_street_line3 IS NULL THEN ''
-                            ELSE spraddr_street_line3 || ', '
-                         END
-                      || spraddr_city
-                      || ' '
-                      || spraddr_stat_code
-                      || ' '
-                      || spraddr_zip
-                      || CASE
-                            WHEN spraddr_natn_code = 'US' THEN ''
-                            ELSE ', ' || spraddr_natn_code
-                         END
-                         AS student_address
-                 */
-               spraddr_street_line1,
+        SELECT spraddr_street_line1,
                spraddr_street_line2,
                spraddr_street_line3,
                spraddr_city,
                spraddr_stat_code,
                spraddr_zip,
-               F_GET_DESC ('STVNATN', spraddr_natn_code)
+               spraddr_natn_code
           INTO out_street_line1,
                out_street_line2,
                out_street_line3,
@@ -228,54 +201,6 @@ AS
                 || SQLERRM);
             RAISE;
     END f_student_visa;
-
-    /**
-    * Retrieves the TD translated SEVIS-Required Code
-    *
-    * Visa Type
-    * SEVIS-Required Codes Code Description
-    * 01 F-1
-    * 04 F-2
-    * 03 J-1
-    * 06 J-2
-    * 02 M-1
-    * 05 M-2
-    *
-    * When the visa type code is any other type, the code is returned untranslated.
-    *
-    * @param    p_pidm     student pidm for lookup
-    * @return   rtn_visa   TD acceptable SEVIS visa code
-    */
-    FUNCTION f_isss_visa (p_pidm gorvisa.gorvisa_pidm%TYPE)
-        RETURN VARCHAR2
-    IS
-        rtn_visa   VARCHAR2 (2);
-    BEGIN
-        SELECT DECODE (gorvisa_vtyp_code,
-                       'F1', '01',
-                       'F2', '04',
-                       'J1', '03',
-                       'J2', '06',
-                       gorvisa_vtyp_code)
-          INTO rtn_visa
-          FROM gorvisa
-         WHERE     gorvisa_pidm = p_pidm
-               AND gorvisa_seq_no = (SELECT MAX (bravo.gorvisa_seq_no)
-                                       FROM gorvisa bravo
-                                      WHERE bravo.gorvisa_pidm = p_pidm);
-
-        RETURN rtn_visa;
-    EXCEPTION
-        WHEN NO_DATA_FOUND
-        THEN
-            RETURN NULL;
-        WHEN OTHERS
-        THEN
-            DBMS_OUTPUT.PUT_LINE (
-                   'ERROR - Unhandeled Exception Retrieving ISSS Visa: '
-                || SQLERRM);
-            RAISE;
-    END f_isss_visa;
 
     FUNCTION f_student_natn (p_pidm gobintl.gobintl_pidm%TYPE)
         RETURN VARCHAR2
@@ -400,31 +325,39 @@ AS
             RAISE;
     END f_student_emergency;
 
-    FUNCTION f_student_mobile (p_pidm sprtele.sprtele_pidm%TYPE)
+    FUNCTION f_student_phone (
+        p_pidm        IN sprtele.sprtele_pidm%TYPE,
+        p_tele_code   IN sprtele.sprtele_tele_code%TYPE)
         RETURN VARCHAR2
     AS
         rtn_phone_number   VARCHAR2 (64);
     BEGIN
         SELECT phone_number
           INTO rtn_phone_number
-          FROM (  SELECT    sprtele_ctry_code_phone
-                         || sprtele_phone_area
-                         || sprtele_phone_number
-                         || sprtele_phone_ext    AS phone_number
+          FROM (  SELECT SUBSTR (
+                             REGEXP_REPLACE (
+                                    sprtele_phone_area
+                                 || sprtele_phone_number
+                                 || sprtele_phone_ext,
+                                 '[^0-9]+',
+                                 ''),
+                             1,
+                             10)    AS phone_number
                     FROM sprtele
-                   WHERE     (sprtele_atyp_code, sprtele_addr_seqno) =
-                             (SELECT spraddr_atyp_code, spraddr_seqno
-                                FROM spraddr
-                               WHERE     spraddr.ROWID = baninst1.F_GET_ADDRESS_ROWID (
-                                                             spraddr_pidm,
-                                                             'ADMSADDR',
-                                                             'A',
-                                                             SYSDATE,
-                                                             NULL,
-                                                             'S',
-                                                             NULL)
-                                     AND spraddr_pidm = sprtele_pidm)
-                         AND sprtele_tele_code = 'MOB'                --mobile
+                   WHERE     (   sprtele_atyp_code = NULL
+                              OR (sprtele_atyp_code, sprtele_addr_seqno) =
+                                 (SELECT spraddr_atyp_code, spraddr_seqno
+                                    FROM spraddr
+                                   WHERE     spraddr.ROWID = baninst1.F_GET_ADDRESS_ROWID (
+                                                                 spraddr_pidm,
+                                                                 'ADMSADDR',
+                                                                 'A',
+                                                                 SYSDATE,
+                                                                 NULL,
+                                                                 'S',
+                                                                 NULL)
+                                         AND spraddr_pidm = sprtele_pidm))
+                         AND sprtele_tele_code = p_tele_code
                          AND sprtele_pidm = p_pidm
                          AND sprtele_status_ind IS NULL
                 ORDER BY sprtele_seqno DESC) numbers
@@ -438,10 +371,10 @@ AS
         WHEN OTHERS
         THEN
             DBMS_OUTPUT.PUT_LINE (
-                   'ERROR - Unhandeled Exception Retrieving Student Mobile Number: '
+                   'ERROR - Unhandeled Exception Retrieving Student Phone Number: '
                 || SQLERRM);
             RAISE;
-    END f_student_mobile;
+    END f_student_phone;
 
     FUNCTION f_holds_academic (p_pidm sprhold.sprhold_pidm%TYPE)
         RETURN VARCHAR2
@@ -531,6 +464,35 @@ AS
                 || SQLERRM);
             RAISE;
     END;
+
+    FUNCTION f_holds_conduct (p_pidm sprhold.sprhold_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_boolean   VARCHAR2 (3) := NULL;
+    BEGIN
+        --financial holds
+        SELECT DISTINCT MAX ('Yes')
+          INTO rtn_boolean
+          FROM sprhold
+         WHERE     sprhold_hldd_code IN ('J1', 'JD')
+               AND SYSDATE BETWEEN sprhold_from_date
+                               AND NVL (sprhold_to_date, SYSDATE)
+               AND sprhold_pidm = p_pidm;
+
+        IF rtn_boolean IS NULL
+        THEN
+            rtn_boolean := 'No';
+        END IF;
+
+        RETURN rtn_boolean;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Student Conduct Holds: '
+                || SQLERRM);
+            RAISE;
+    END f_holds_conduct;
 
     FUNCTION f_student_resd (p_pidm VARCHAR2, p_term VARCHAR2)
         RETURN VARCHAR2
@@ -846,6 +808,7 @@ AS
 
         v_Country_of_Citizenship     VARCHAR2 (64);
         v_Visa_Status                VARCHAR2 (64);
+
         v_Cell_Number                VARCHAR2 (64);
         v_Cumulative_GPA             VARCHAR2 (64);
         v_Financial_Hold             VARCHAR2 (64);
@@ -980,7 +943,10 @@ AS
                     v_Country_of_Citizenship :=
                         F_GET_DESC ('STVNATN', f_student_natn (v_pidm));
                     v_Visa_Status := f_student_visa (v_pidm);
-                    v_Cell_Number := f_student_mobile (v_pidm);
+
+                    v_Cell_Number :=
+                        f_student_phone (p_pidm        => v_pidm,
+                                         p_tele_code   => 'MOB');
 
                     v_Cumulative_GPA :=
                         f_parse (f_concat_as_of_cum_gpa (v_pidm,
@@ -1025,6 +991,10 @@ AS
                                        v_Campus_State,
                                        v_Campus_Zip,
                                        v_Campus_Country);
+
+                    v_Campus_Country :=
+                        F_GET_DESC ('STVNATN', v_Campus_Country);
+
                     p_student_address (v_pidm,
                                        'PR',
                                        NULL,
@@ -1035,6 +1005,8 @@ AS
                                        v_Perm_State,
                                        v_Perm_Zip,
                                        v_Perm_Country);
+
+                    v_Perm_Country := F_GET_DESC ('STVNATN', v_Perm_Country);
 
                     BEGIN
                         v_filedata :=
@@ -1212,6 +1184,56 @@ AS
             RAISE;
     END f_isss_translate_suffix;
 
+
+    /**
+    * Retrieves the TD translated SEVIS-Required Code
+    *
+    * Visa Type
+    * SEVIS-Required Codes Code Description
+    * 01 F-1
+    * 04 F-2
+    * 03 J-1
+    * 06 J-2
+    * 02 M-1
+    * 05 M-2
+    *
+    * When the visa type code is any other type, the code is returned untranslated.
+    *
+    * @param    p_pidm     student pidm for lookup
+    * @return   rtn_visa   TD acceptable SEVIS visa code
+    */
+    FUNCTION f_isss_visa (p_pidm gorvisa.gorvisa_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_visa   VARCHAR2 (2);
+    BEGIN
+        SELECT DECODE (gorvisa_vtyp_code,
+                       'F1', '01',
+                       'F2', '04',
+                       'J1', '03',
+                       'J2', '06',
+                       gorvisa_vtyp_code)
+          INTO rtn_visa
+          FROM gorvisa
+         WHERE     gorvisa_pidm = p_pidm
+               AND gorvisa_seq_no = (SELECT MAX (bravo.gorvisa_seq_no)
+                                       FROM gorvisa bravo
+                                      WHERE bravo.gorvisa_pidm = p_pidm);
+
+        RETURN rtn_visa;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving ISSS Visa: '
+                || SQLERRM);
+            RAISE;
+    END f_isss_visa;
+
+
     PROCEDURE p_isss_extract_sis_user_info
     IS
         v_delim                         VARCHAR2 (1) := CHR (9); --ASCII Character horizonal tab
@@ -1242,7 +1264,27 @@ AS
                     f_isss_translate_suffix (spbpers_name_suffix)
                         SUFFIX,
                     f_isss_visa (spriden_pidm)
-                        VISA_TYPE
+                        VISA_TYPE,
+                    (SELECT stvnatn_sevis_equiv
+                       FROM stvnatn
+                      WHERE stvnatn_code = gobintl_natn_code_birth)
+                        BIRTH_COUNTRY,
+                    (SELECT stvnatn_sevis_equiv
+                       FROM stvnatn
+                      WHERE stvnatn_code = gobintl_natn_code_legal)
+                        CITIZENSHIP_COUNTRY,
+                    (SELECT stvnatn_sevis_equiv
+                       FROM stvnatn
+                      WHERE stvnatn_code = gobintl_natn_code_legal)
+                        PERM_RESIDENT_COUNTRY,
+                    spriden_id
+                        STUDENT_ID,
+                    F_GET_DESC ('STVMRTL', sbprpers_mrtl_code)
+                        MARITAL_STATUS,
+                    spbpers_pref_first_name
+                        PREFERRED_NAME,
+                    spbpers_gndr_code
+                        PREFERRED_GENDER
                FROM (SELECT DISTINCT saradap_pidm     pidm
                        FROM saradap                       --admissions records
                       WHERE saradap_term_code_entry IN
@@ -1294,16 +1336,17 @@ AS
         lv_HR_FLAG                      VARCHAR2 (1) := NULL; --TODO: work with Steven Clark to determine HR flag
         --lv_SUFFIX                       VARCHAR2 (10);
         --lv_VISA_TYPE                    VARCHAR2 (2);
-        lv_MAJOR_CIP                    VARCHAR2 (7) := '00.000';
-        lv_SECOND_MAJOR_CIP             VARCHAR2 (7) := '00.000';
-        lv_MINOR_CIP                    VARCHAR2 (7) := '00.000';
-        lv_EDUCATION_LEVEL              VARCHAR2 (2);
-        lv_BIRTH_COUNTRY                VARCHAR2 (2);
-        lv_CITIZENSHIP_COUNTRY          VARCHAR2 (2);
+        lv_MAJOR_CIP                    VARCHAR2 (7) := '00.000';       --TODO
+        lv_SECOND_MAJOR_CIP             VARCHAR2 (7) := '00.000';       --TODO
+        lv_MINOR_CIP                    VARCHAR2 (7) := '00.000';       --TODO
+        lv_EDUCATION_LEVEL              VARCHAR2 (2);                   --TODO
+        --lv_BIRTH_COUNTRY                VARCHAR2 (2);
+        --lv_CITIZENSHIP_COUNTRY          VARCHAR2 (2);
         lv_FOREIGN_PHONE_COUNTRY_CODE   VARCHAR2 (4);
         lv_FOREIGN_PHONE                VARCHAR2 (20);
         lv_US_PHONE                     VARCHAR2 (10);
-        lv_PERM_RESIDENT_COUNTRY        VARCHAR2 (2);
+        --lv_PERM_RESIDENT_COUNTRY        VARCHAR2 (2);
+
         lv_US_ADDRESS_LINE1             VARCHAR2 (64);
         lv_US_ADDRESS_LINE2             VARCHAR2 (64);
         lv_US_ADDRESS_CITY              VARCHAR2 (50);
@@ -1320,46 +1363,51 @@ AS
         lv_US_MAILING_ADDRESS_CITY      VARCHAR2 (50);
         lv_US_MAILING_ADDRESS_STATE     VARCHAR2 (2);
         lv_US_MAILING_ADDRESS_ZIP       VARCHAR2 (5);
-        lv_MAJOR1_DEPT                  VARCHAR2 (500);
-        lv_MAJOR2_DEPT                  VARCHAR2 (500);
-        lv_MAJOR1_DESC                  VARCHAR2 (500);
-        lv_MAJOR2_DESC                  VARCHAR2 (500);
-        lv_MINOR_DEPT                   VARCHAR2 (500);
-        lv_MINOR_DESC                   VARCHAR2 (500);
-        lv_ENROLL_COLLEGE               VARCHAR2 (500);
-        lv_STUDENT_ID                   VARCHAR2 (500);
-        lv_ADVISOR_NAME                 VARCHAR2 (500);
-        lv_ADVISOR_EMAIL                VARCHAR2 (500);
-        lv_LANGUAGE_TEST1               VARCHAR2 (500);
-        lv_LANGUAGE_TEST2               VARCHAR2 (500);
-        lv_CREDITS_TOTAL                NUMBER (11, 3);
-        lv_CREDITS_CAMPUS               NUMBER (11, 3);
-        lv_CREDITS_ONLINE               NUMBER (11, 3);
-        lv_CREDITS_ESL                  NUMBER (11, 3);
-        lv_FULL_TIME                    VARCHAR2 (500);
-        lv_CREDITS_TERM                 VARCHAR2 (6);
-        lv_CREDITS_EARNED               NUMBER (11, 3);
-        lv_UNDERGRAD_LEVEL              VARCHAR2 (2);
-        lv_APPLIED_GRADUATION           VARCHAR2 (1);
-        lv_GRAD_DATE                    DATE;
-        lv_ACADEMIC_DEFICIENCY          VARCHAR2 (500);
-        lv_FINANCIAL_HOLD               VARCHAR2 (64);
-        lv_CONDUCT_HOLD                 VARCHAR2 (64);
-        lv_CUM_GPA                      shrlgpa.SHRLGPA_GPA%TYPE;
-        lv_ADMIT_TERM                   VARCHAR2 (500);
-        lv_MARITAL_STATUS               VARCHAR2 (500);
-        lv_PREFERRED_NAME               VARCHAR2 (500);
-        lv_PREFERRED_GENDER             VARCHAR2 (500);
-        lv_CUSTOM1                      VARCHAR2 (500);
-        lv_CUSTOM2                      VARCHAR2 (500);
-        lv_CUSTOM3                      VARCHAR2 (500);
-        lv_CUSTOM4                      VARCHAR2 (500);
-        lv_CUSTOM5                      VARCHAR2 (500);
-        lv_CUSTOM6                      VARCHAR2 (500);
-        lv_CUSTOM7                      VARCHAR2 (500);
-        lv_CUSTOM8                      VARCHAR2 (500);
-        lv_CUSTOM9                      VARCHAR2 (500);
-        lv_CUSTOM10                     VARCHAR2 (500);
+
+        lv_MAJOR1_DEPT                  VARCHAR2 (500);                 --TODO
+        lv_MAJOR2_DEPT                  VARCHAR2 (500);                 --TODO
+        lv_MAJOR1_DESC                  VARCHAR2 (500);                 --TODO
+        lv_MAJOR2_DESC                  VARCHAR2 (500);                 --TODO
+        lv_MINOR_DEPT                   VARCHAR2 (500);                 --TODO
+        lv_MINOR_DESC                   VARCHAR2 (500);                 --TODO
+        lv_ENROLL_COLLEGE               VARCHAR2 (500);                 --TODO
+        --lv_STUDENT_ID                   VARCHAR2 (500);
+        lv_ADVISOR_NAME                 VARCHAR2 (500);                 --TODO
+        lv_ADVISOR_EMAIL                VARCHAR2 (500);                 --TODO
+        lv_LANGUAGE_TEST1               VARCHAR2 (500);                 --TODO
+        lv_LANGUAGE_TEST2               VARCHAR2 (500);                 --TODO
+        lv_CREDITS_TOTAL                NUMBER (11, 3);                 --TODO
+        lv_CREDITS_CAMPUS               NUMBER (11, 3);                 --TODO
+        lv_CREDITS_ONLINE               NUMBER (11, 3);                 --TODO
+        lv_CREDITS_ESL                  NUMBER (11, 3);                 --TODO
+        lv_FULL_TIME                    VARCHAR2 (500);                 --TODO
+        lv_CREDITS_TERM                 VARCHAR2 (6);                   --TODO
+        lv_CREDITS_EARNED               NUMBER (11, 3);                 --TODO
+        lv_UNDERGRAD_LEVEL              VARCHAR2 (2);                   --TODO
+        lv_APPLIED_GRADUATION           VARCHAR2 (1);                   --TODO
+        lv_GRAD_DATE                    DATE;                           --TODO
+        lv_ACADEMIC_DEFICIENCY          VARCHAR2 (500);                 --TODO
+        lv_FINANCIAL_HOLD               VARCHAR2 (64);                  --TODO
+        lv_CONDUCT_HOLD                 VARCHAR2 (64);                  --TODO
+        lv_CUM_GPA                      shrlgpa.SHRLGPA_GPA%TYPE;       --TODO
+        lv_ADMIT_TERM                   VARCHAR2 (500);                 --TODO
+        --lv_MARITAL_STATUS               VARCHAR2 (500);
+        --lv_PREFERRED_NAME               VARCHAR2 (500);
+        --lv_PREFERRED_GENDER             VARCHAR2 (500);
+        lv_CUSTOM1                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM2                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM3                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM4                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM5                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM6                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM7                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM8                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM9                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM10                     VARCHAR2 (500);                 --TODO
+
+        --processing variables
+        lv_banner_line3                 VARCHAR2 (64);
+        lv_banner_country               VARCHAR2 (64);
     BEGIN
         id :=
             UTL_FILE.fopen (v_directory,
@@ -1391,6 +1439,53 @@ AS
         FOR student_rec IN student_cur
         LOOP
             BEGIN
+                p_student_address (v_pidm,
+                                   'MA',
+                                   NULL,
+                                   lv_US_ADDRESS_LINE1,
+                                   lv_US_ADDRESS_LINE2,
+                                   lv_banner_line3,
+                                   lv_US_ADDRESS_CITY,
+                                   lv_US_ADDRESS_STATE,
+                                   lv_US_ADDRESS_ZIP,
+                                   lv_banner_country);
+
+                p_student_address (v_pidm,
+                                   'PR',
+                                   NULL,
+                                   lv_US_ADDRESS_LINE1,
+                                   lv_US_ADDRESS_LINE2,
+                                   lv_banner_line3,
+                                   lv_US_ADDRESS_CITY,
+                                   lv_US_ADDRESS_STATE,
+                                   lv_US_ADDRESS_ZIP,
+                                   lv_banner_country);
+
+                BEGIN
+                    SELECT stvnatn_sevis_equiv
+                      INTO lv_FOREIGN_ADDRESS_COUNTRY
+                      FROM stvnatn
+                     WHERE stvnatn_code = lv_banner_country;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND
+                    THEN
+                        lv_FOREIGN_ADDRESS_COUNTRY := NULL;
+                END;
+
+                p_student_address (v_pidm,
+                                   'MA',
+                                   NULL,
+                                   lv_US_MAILING_ADDRESS_LINE1,
+                                   lv_US_MAILING_ADDRESS_LINE2,
+                                   lv_banner_line3,
+                                   lv_US_MAILING_ADDRESS_CITY,
+                                   lv_US_MAILING_ADDRESS_STATE,
+                                   lv_US_MAILING_ADDRESS_ZIP,
+                                   lv_banner_country);
+
+                lv_US_PHONE :=
+                    f_student_phone (p_pidm => v_pidm, p_tele_code => 'MA');
+
                 filedata :=
                        student_rec.user_name
                     || v_delim
