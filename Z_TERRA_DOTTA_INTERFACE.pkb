@@ -1,4 +1,4 @@
-/* Formatted on 5/22/2019 3:49:05 PM (QP5 v5.336) */
+/* Formatted on 5/22/2019 5:22:47 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -16,6 +16,9 @@ AS
     20170908   Carl Ellsworth   updated term function calls
     20180524   Carl Ellsworth   added custom call for majority campus
     20180926   Carl Ellsworth   updated major2 field with college as requested
+    20190520   Carl Ellsworth   added ISS extract functionality
+    20190521   Carl Ellsworth   added some SEVIS specifics to ISSS extract
+    20190522   Carl Ellsworth   added extended academics to ISSS extract
 
     ***************************************************************************/
 
@@ -1233,6 +1236,43 @@ AS
             RAISE;
     END f_isss_visa;
 
+    /**
+    * Retrieves the time status for a given term
+    *
+    * @param    p_pidm            student pidm for lookup
+    * @param    p_term_code       term code for lookup
+    * @return   rtn_time_status   time status code and description
+    */
+    FUNCTION f_student_time_status (
+        p_pidm        sfrthst.sfrthst_pidm%TYPE,
+        p_term_code   sfrthst.sfrthst_term_code%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_time_status   VARCHAR2 (2);
+    BEGIN
+        SELECT sfrthst_tmst_code || ' - ' || stvtmst_desc
+          INTO rtn_time_status
+          FROM sfrthst JOIN stvtmst ON sfrthst_tmst_code = stvtmst_code
+         WHERE     sfrthst_pidm = p_pidm
+               AND sfrthst_tmst_date =
+                   (SELECT MAX (foxtrot.sfrthst_tmst_date)
+                      FROM sfrthst foxtrot
+                     WHERE     foxtrot.sfrthst_pidm = sfrthst.sfrthst_pidm
+                           AND foxtrot.sfrthst_term_code = p_term_code);
+
+
+        RETURN rtn_time_status;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Time Status: '
+                || SQLERRM);
+            RAISE;
+    END f_student_time_status;
 
     PROCEDURE p_isss_extract_sis_user_info
     IS
@@ -1321,8 +1361,6 @@ AS
         v_file_name                     VARCHAR2 (30) := 'sis_user_info.txt';
 
         --EXTRACT VARIABLES
-        lv_term_code                    VARCHAR2 (6) := CASANDRA.F_FETCH_TERM;
-        --lv_pidm                         spriden.spriden_pidm%TYPE;
         --lv_UUUID                        spriden.spriden_id%TYPE;
         --lv_LAST_NAME                    VARCHAR2 (50);
         --lv_FIRST_NAME                   VARCHAR2 (50);
@@ -1378,9 +1416,9 @@ AS
         lv_CREDITS_CAMPUS               NUMBER (11, 3);                 --TODO
         lv_CREDITS_ONLINE               NUMBER (11, 3);                 --TODO
         lv_CREDITS_ESL                  NUMBER (11, 3);                 --TODO
-        lv_FULL_TIME                    VARCHAR2 (500);                 --TODO
+        lv_FULL_TIME                    VARCHAR2 (500);
         lv_CREDITS_TERM                 VARCHAR2 (6) := CASANDRA.F_FETCH_TERM;
-        lv_CREDITS_EARNED               NUMBER (11, 3);                 --TODO
+        lv_CREDITS_EARNED               NUMBER (11, 3);
         lv_UNDERGRAD_LEVEL              VARCHAR2 (2);
         lv_APPLIED_GRADUATION           VARCHAR2 (1);                   --TODO
         lv_GRAD_DATE                    DATE;                           --TODO
@@ -1400,12 +1438,15 @@ AS
         lv_CUSTOM6                      VARCHAR2 (500);                 --TODO
         lv_CUSTOM7                      VARCHAR2 (500);                 --TODO
         lv_CUSTOM8                      VARCHAR2 (500);                 --TODO
-        lv_CUSTOM9                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM9                      VARCHAR2 (500);
         lv_CUSTOM10                     VARCHAR2 (500);                 --TODO
 
         --processing variables
+        lv_term_code                    VARCHAR2 (6) := CASANDRA.F_FETCH_TERM;
+        --lv_pidm                         spriden.spriden_pidm%TYPE;
         lv_banner_line3                 VARCHAR2 (64);
         lv_banner_country               VARCHAR2 (64);
+        lv_banner_level_code            VARCHAR2 (64);
         lv_banner_class_code            VARCHAR2 (64);
         lv_banner_degree_code           VARCHAR2 (64);
     BEGIN
@@ -1495,7 +1536,8 @@ AS
 
                 --STUDENT ACADEMICS BLOCK
                 BEGIN
-                    SELECT                     --sgbstdn_levl_code level_code,
+                    SELECT sgbstdn_levl_code
+                               banner_level_code,
                            f_class_calc_fnc (PIDM        => sgbstdn_pidm,
                                              LEVL_CODE   => sgbstdn_levl_code,
                                              TERM_CODE   => lv_term_code)
@@ -1565,7 +1607,8 @@ AS
                                    NULL
                            END
                                leave_reason
-                      INTO lv_banner_class_code,
+                      INTO lv_banner_level_code,
+                           lv_banner_class_code,
                            lv_ENROLL_COLLEGE,
                            lv_MAJOR1_DEPT,
                            lv_banner_degree_code,
@@ -1625,6 +1668,28 @@ AS
                             || student_rec.UUUID);
                 END;
 
+                --STUDENT CUMULATIVE GPA BLOCK
+                BEGIN
+                    SELECT shrlgpa_hours_earned, shrlgpa_gpa
+                      INTO lv_CREDITS_EARNED, lv_CUM_GPA
+                      FROM shrlgpa
+                     WHERE     shrlgpa_gpa_type_ind = 'O'    --overall credits
+                           AND shrlgpa_levl_code = lv_banner_level_code
+                           AND shrlgpa_pidm = student_rec.pidm;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND
+                    THEN
+                        lv_CREDITS_EARNED := NULL;
+                        lv_CUM_GPA := NULL;
+                        DBMS_OUTPUT.put_line (
+                               'ERROR: No student cumulative gpa found for '
+                            || student_rec.UUUID);
+                END;
+
+                lv_FULL_TIME :=
+                    f_student_time_status (p_pidm        => student_rec.pidm,
+                                           p_term_code   => lv_term_code);
+
                 filedata :=
                        student_rec.UUUID
                     || v_delim
@@ -1655,7 +1720,8 @@ AS
     EXCEPTION
         WHEN OTHERS
         THEN
-            DBMS_OUTPUT.put_line ('TDEXPORT - UNKNOWN ERROR: ' || SQLERRM);
+            DBMS_OUTPUT.put_line (
+                'TDEXPORT - UNKNOWN ISSS ERROR: ' || SQLERRM);
     END;
 END z_terra_dotta_interface;
 /
