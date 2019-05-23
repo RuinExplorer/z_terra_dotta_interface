@@ -1671,20 +1671,20 @@ AS
         lv_ADVISOR_EMAIL                VARCHAR2 (500);                 --TODO
         lv_LANGUAGE_TEST1               VARCHAR2 (500);                 --TODO
         lv_LANGUAGE_TEST2               VARCHAR2 (500);                 --TODO
-        lv_CREDITS_TOTAL                NUMBER (11, 3);                 --TODO
-        lv_CREDITS_CAMPUS               NUMBER (11, 3);                 --TODO
-        lv_CREDITS_ONLINE               NUMBER (11, 3);                 --TODO
-        lv_CREDITS_ESL                  NUMBER (11, 3);                 --TODO
+        lv_CREDITS_TOTAL                NUMBER (11, 3);
+        lv_CREDITS_CAMPUS               NUMBER (11, 3);
+        lv_CREDITS_ONLINE               NUMBER (11, 3);
+        lv_CREDITS_ESL                  NUMBER (11, 3);
         lv_FULL_TIME                    VARCHAR2 (500);
         lv_CREDITS_TERM                 VARCHAR2 (6) := CASANDRA.F_FETCH_TERM;
         lv_CREDITS_EARNED               NUMBER (11, 3);
         lv_UNDERGRAD_LEVEL              VARCHAR2 (2);
-        lv_APPLIED_GRADUATION           VARCHAR2 (1);                   --TODO
-        lv_GRAD_DATE                    DATE;                           --TODO
-        lv_ACADEMIC_DEFICIENCY          VARCHAR2 (500);                 --TODO
-        lv_FINANCIAL_HOLD               VARCHAR2 (64);                  --TODO
-        lv_CONDUCT_HOLD                 VARCHAR2 (64);                  --TODO
-        lv_CUM_GPA                      shrlgpa.SHRLGPA_GPA%TYPE;       --TODO
+        lv_APPLIED_GRADUATION           VARCHAR2 (1);
+        lv_GRAD_DATE                    DATE;
+        lv_ACADEMIC_DEFICIENCY          VARCHAR2 (500);
+        lv_FINANCIAL_HOLD               VARCHAR2 (64);
+        lv_CONDUCT_HOLD                 VARCHAR2 (64);
+        lv_CUM_GPA                      shrlgpa.SHRLGPA_GPA%TYPE;
         lv_ADMIT_TERM                   VARCHAR2 (500);                 --TODO
         lv_MARITAL_STATUS               VARCHAR2 (500);
         --lv_PREFERRED_NAME               VARCHAR2 (500);
@@ -1696,7 +1696,7 @@ AS
         lv_CUSTOM5                      VARCHAR2 (500);                 --TODO
         lv_CUSTOM6                      VARCHAR2 (500);                 --TODO
         lv_CUSTOM7                      VARCHAR2 (500);                 --TODO
-        --lv_CUSTOM8                      VARCHAR2 (500);                 --TODO
+        --lv_CUSTOM8                      VARCHAR2 (500);
         lv_CUSTOM9                      VARCHAR2 (500);
         lv_CUSTOM10                     VARCHAR2 (500);                 --TODO
 
