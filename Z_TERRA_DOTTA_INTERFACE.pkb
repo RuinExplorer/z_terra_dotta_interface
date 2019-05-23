@@ -1,4 +1,4 @@
-/* Formatted on 5/22/2019 5:22:47 PM (QP5 v5.336) */
+/* Formatted on 5/22/2019 7:30:12 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -235,7 +235,7 @@ AS
     IS
         --this procedure served as a shortcut to major_1 and major_2
         -- Monika Galvydis requested that major_2 be populated with college instead
-        -- the chnage was made on 20180926 and is noted here due to the field name
+        -- the change was made on 20180926 and is noted here due to the field name
         rtn_exp_grad_date   DATE;
     BEGIN
         SELECT sgbstdn_exp_grad_date, alpha.stvmajr_desc, stvcoll_desc --bravo.stvmajr_desc
@@ -1189,6 +1189,47 @@ AS
 
 
     /**
+    * Translates the Banner level_code to a TD accepted value
+    *
+    * Undergraduate Level
+    * SEVIS-Required Codes Code Description
+    * 01 Freshman/First Year
+    * 02 Sophomore
+    * 03 Junior
+    * 04 Senior
+    * 05 Undergraduate, Unspecified
+    * 06 Undergraduate Non-Degree Seeking
+    *
+    * @param    p_banner_class_code   Banner class code to parse
+    * @return   rtn_td_ug_level       TD acceptable undergraduate level code
+    */
+    FUNCTION f_isss_translate_level (p_banner_class_code VARCHAR2)
+        RETURN VARCHAR2
+    AS
+        rtn_td_ug_level   VARCHAR2 (5);
+    BEGIN
+        rtn_td_ug_level :=
+            CASE
+                WHEN p_banner_class_code IS NULL THEN NULL
+                WHEN p_banner_class_code = 'GR' THEN NULL
+                WHEN p_banner_class_code = 'FR' THEN '01'
+                WHEN p_banner_class_code = 'SO' THEN '02'
+                WHEN p_banner_class_code = 'JR' THEN '03'
+                WHEN p_banner_class_code = 'SR' THEN '04'
+                ELSE '05'
+            END;
+
+        RETURN rtn_td_ug_level;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Translating Undergraduate Level: '
+                || SQLERRM);
+            RAISE;
+    END f_isss_translate_level;
+
+    /**
     * Retrieves the TD translated SEVIS-Required Code
     *
     * Visa Type
@@ -1274,6 +1315,221 @@ AS
             RAISE;
     END f_student_time_status;
 
+    /**
+    * Retrieves date from graduation application
+    *
+    * @param    p_pidm              student pidm for lookup
+    * @param    p_date              date for lookup
+    * @return   rtn_exp_grad_date   date for graduation
+    */
+    FUNCTION f_student_grad_date (
+        p_pidm   shrdgmr.shrdgmr_pidm%TYPE,
+        p_date   shrdgmr.shrdgmr_grad_date%TYPE DEFAULT SYSDATE)
+        RETURN DATE
+    IS
+        rtn_exp_grad_date   VARCHAR2 (1);
+    BEGIN
+        SELECT MIN (shrdgmr_grad_date)
+          INTO rtn_exp_grad_date
+          FROM shrdgmr
+         WHERE shrdgmr_pidm = p_pidm AND shrdgmr_grad_date >= SYSDATE;
+
+        RETURN rtn_exp_grad_date;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Graduation Date: '
+                || SQLERRM);
+            RAISE;
+    END f_student_grad_date;
+
+    /**
+    * Retrieves academic standing
+    *
+    * @param    p_pidm                  student pidm for lookup
+    * @param    p_term_code             term_code for lookup
+    * @return   rtn_academic_standing   most recent standing since term_code
+    */
+    FUNCTION f_student_academic_standing (
+        p_pidm        shrttrm.shrttrm_pidm%TYPE,
+        p_term_code   shrttrm.shrttrm_term_code%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_academic_standing   VARCHAR2 (128);
+    BEGIN
+        SELECT shrttrm_astd_code_end_of_term || ' - ' || stvastd_desc
+          INTO rtn_academic_standing
+          FROM shrttrm
+               LEFT JOIN stvastd
+                   ON shrttrm_astd_code_end_of_term = stvastd_code
+         WHERE     shrttrm_pidm = p_pidm
+               AND shrttrm_term_code =
+                   (SELECT MAX (golf.shrttrm_term_code)
+                      FROM shrttrm golf
+                     WHERE     golf.shrttrm_term_code <= p_term_code
+                           AND golf.shrttrm_pidm = shrttrm.shrttrm_pidm);
+
+        RETURN rtn_academic_standing;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving Academic Standing: '
+                || SQLERRM);
+            RAISE;
+    END f_student_academic_standing;
+
+    /**
+    * Retrieves the credit count for all classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_term_total (
+        p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+        p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours_total
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_term_total;
+
+    /**
+    * Retrieves the credit count for main campus classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_campus (p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+                               p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours_online
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND ssbsect_camp_code = 'M' --campus_code for Logan Main Campus
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_campus;
+
+    /**
+    * Retrieves the credit count for online classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_online (p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+                               p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours_online
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND ssbsect_insm_code IN ('I', 'WB', 'XO')
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_online;
+
+    /**
+    * Retrieves the credit count for ieli classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_esl (p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+                            p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours_ieli
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND ssbsect_subj_code = 'IELI'
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_esl;
+
+    /**
+    * Extracts International Student data for use by Terra Dotta ISSS
+    */
     PROCEDURE p_isss_extract_sis_user_info
     IS
         v_delim                         VARCHAR2 (1) := CHR (9); --ASCII Character horizonal tab
@@ -1322,7 +1578,9 @@ AS
                     spbpers_pref_first_name
                         PREFERRED_NAME,
                     spbpers_gndr_code
-                        PREFERRED_GENDER
+                        PREFERRED_GENDER,
+                    spbpers_citz_code || ' - ' || stvcitz_desc
+                        CUSTOM8
                FROM (SELECT DISTINCT saradap_pidm     pidm
                        FROM saradap                       --admissions records
                       WHERE saradap_term_code_entry IN
@@ -1350,6 +1608,7 @@ AS
                                   FROM saradap bravo
                                  WHERE bravo.saradap_pidm =
                                        saradap.saradap_pidm)
+                    LEFT JOIN stvcitz ON spbpers_citz_code = stvcitz_code
               WHERE     SARADAP_RESD_CODE = 'I'
                     AND GOBINTL_NATN_CODE_LEGAL <> 'US');
 
@@ -1437,7 +1696,7 @@ AS
         lv_CUSTOM5                      VARCHAR2 (500);                 --TODO
         lv_CUSTOM6                      VARCHAR2 (500);                 --TODO
         lv_CUSTOM7                      VARCHAR2 (500);                 --TODO
-        lv_CUSTOM8                      VARCHAR2 (500);                 --TODO
+        --lv_CUSTOM8                      VARCHAR2 (500);                 --TODO
         lv_CUSTOM9                      VARCHAR2 (500);
         lv_CUSTOM10                     VARCHAR2 (500);                 --TODO
 
@@ -1449,6 +1708,8 @@ AS
         lv_banner_level_code            VARCHAR2 (64);
         lv_banner_class_code            VARCHAR2 (64);
         lv_banner_degree_code           VARCHAR2 (64);
+        lv_banner_exp_grad_date         DATE;
+        lv_banner_app_grad_date         DATE;
     BEGIN
         id :=
             UTL_FILE.fopen (v_directory,
@@ -1606,7 +1867,8 @@ AS
                                ELSE
                                    NULL
                            END
-                               leave_reason
+                               leave_reason,
+                           sgbstdn_exp_grad_date
                       INTO lv_banner_level_code,
                            lv_banner_class_code,
                            lv_ENROLL_COLLEGE,
@@ -1618,7 +1880,8 @@ AS
                            lv_SECOND_MAJOR_CIP,
                            lv_MINOR_DESC,
                            lv_MINOR_CIP,
-                           lv_CUSTOM9                           --leave_reason
+                           lv_CUSTOM9,                          --leave_reason
+                           lv_banner_exp_grad_date
                       FROM sgbstdn
                            LEFT JOIN stvcoll
                                ON sgbstdn_coll_code_1 = stvcoll_code
@@ -1644,16 +1907,20 @@ AS
                                            lv_term_code)
                            AND sgbstdn_pidm = student_rec.pidm;
 
-                    --TODO tranlsate lv_UNDERGRAD_LEVEL from class_code
-                    lv_UNDERGRAD_LEVEL := NULL;
+                    lv_UNDERGRAD_LEVEL :=
+                        f_isss_translate_level (
+                            p_banner_class_code   => lv_banner_class_code);
 
                     --TODO translate lv_EDUCATION_LEVEL from degree_code
                     lv_EDUCATION_LEVEL := NULL;
                 EXCEPTION
                     WHEN NO_DATA_FOUND
                     THEN
+                        lv_banner_level_code := NULL;
+                        lv_banner_class_code := NULL;
                         lv_ENROLL_COLLEGE := NULL;
                         lv_MAJOR1_DEPT := NULL;
+                        lv_banner_degree_code := NULL;
                         lv_MAJOR1_DESC := NULL;
                         lv_MAJOR_CIP := NULL;
                         lv_MAJOR2_DESC := NULL;
@@ -1663,6 +1930,7 @@ AS
                         lv_CUSTOM9 := NULL;
                         lv_UNDERGRAD_LEVEL := NULL;
                         lv_EDUCATION_LEVEL := NULL;
+                        lv_banner_exp_grad_date := NULL;
                         DBMS_OUTPUT.put_line (
                                'ERROR: No student record found for '
                             || student_rec.UUUID);
@@ -1686,9 +1954,44 @@ AS
                             || student_rec.UUUID);
                 END;
 
+                lv_banner_app_grad_date :=
+                    f_student_grad_date (p_pidm => student_rec.pidm);
+
+                CASE
+                    WHEN lv_banner_app_grad_date IS NOT NULL
+                    THEN
+                        lv_GRAD_DATE := lv_banner_app_grad_date;
+                        lv_APPLIED_GRADUATION := 'Y';
+                    ELSE
+                        lv_APPLIED_GRADUATION := 'N';
+                        lv_GRAD_DATE := lv_banner_exp_grad_date;
+                END CASE;
+
+                lv_CREDITS_TOTAL :=
+                    f_credits_term_total (p_pidm        => student_rec.pidm,
+                                          p_term_code   => lv_term_code);
+                lv_CREDITS_CAMPUS :=
+                    f_credits_campus (p_pidm        => student_rec.pidm,
+                                      p_term_code   => lv_term_code);
+                lv_CREDITS_ONLINE :=
+                    f_credits_online (p_pidm        => student_rec.pidm,
+                                      p_term_code   => lv_term_code);
+                lv_CREDITS_ESL :=
+                    f_credits_esl (p_pidm        => student_rec.pidm,
+                                   p_term_code   => lv_term_code);
                 lv_FULL_TIME :=
                     f_student_time_status (p_pidm        => student_rec.pidm,
                                            p_term_code   => lv_term_code);
+
+                lv_ACADEMIC_DEFICIENCY :=
+                    f_student_academic_standing (
+                        p_pidm        => student_rec.pidm,
+                        p_term_code   => lv_term_code);
+
+                lv_FINANCIAL_HOLD :=
+                    f_holds_financial (p_pidm => student_rec.pidm);
+                lv_CONDUCT_HOLD :=
+                    f_holds_conduct (p_pidm => student_rec.pidm);
 
                 filedata :=
                        student_rec.UUUID
