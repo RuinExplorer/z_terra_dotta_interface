@@ -1,4 +1,4 @@
-/* Formatted on 5/22/2019 7:30:12 PM (QP5 v5.336) */
+/* Formatted on 5/23/2019 3:32:39 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -19,6 +19,7 @@ AS
     20190520   Carl Ellsworth   added ISS extract functionality
     20190521   Carl Ellsworth   added some SEVIS specifics to ISSS extract
     20190522   Carl Ellsworth   added extended academics to ISSS extract
+    20190523   Carl Ellsworth   added Admissions, Advisors, and more data elements
 
     ***************************************************************************/
 
@@ -1579,8 +1580,20 @@ AS
                         PREFERRED_NAME,
                     spbpers_gndr_code
                         PREFERRED_GENDER,
+                    CASE
+                        WHEN gobintl_spon_code IS NOT NULL
+                        THEN
+                            gobintl_spon_code || ' - ' || stvspon_desc
+                        ELSE
+                            NULL
+                    END
+                        CUSTOM3,                                     --sponspr
+                    gobintl_spouse_ind
+                        CUSTOM4,                                      --spouse
+                    gobintl_child_number
+                        CUSTOM5,                                    --children
                     spbpers_citz_code || ' - ' || stvcitz_desc
-                        CUSTOM8
+                        CUSTOM8                                  --citizenship
                FROM (SELECT DISTINCT saradap_pidm     pidm
                        FROM saradap                       --admissions records
                       WHERE saradap_term_code_entry IN
@@ -1601,6 +1614,7 @@ AS
                            AND goremal_status_ind = 'A'
                            AND goremal_preferred_ind = 'Y'
                     LEFT JOIN gobintl ON gobintl_pidm = pidm
+                    LEFT JOIN stvspon ON gobintl_spon_code = stvspon_code
                     LEFT JOIN saradap
                         ON     saradap_pidm = pidm
                            AND saradap_appl_date =
@@ -1685,20 +1699,20 @@ AS
         lv_FINANCIAL_HOLD               VARCHAR2 (64);
         lv_CONDUCT_HOLD                 VARCHAR2 (64);
         lv_CUM_GPA                      shrlgpa.SHRLGPA_GPA%TYPE;
-        lv_ADMIT_TERM                   VARCHAR2 (500);                 --TODO
+        lv_ADMIT_TERM                   VARCHAR2 (500);
         lv_MARITAL_STATUS               VARCHAR2 (500);
         --lv_PREFERRED_NAME               VARCHAR2 (500);
         --lv_PREFERRED_GENDER             VARCHAR2 (500);
-        lv_CUSTOM1                      VARCHAR2 (500);                 --TODO
-        lv_CUSTOM2                      VARCHAR2 (500);                 --TODO
-        lv_CUSTOM3                      VARCHAR2 (500);                 --TODO
-        lv_CUSTOM4                      VARCHAR2 (500);                 --TODO
-        lv_CUSTOM5                      VARCHAR2 (500);                 --TODO
-        lv_CUSTOM6                      VARCHAR2 (500);                 --TODO
-        lv_CUSTOM7                      VARCHAR2 (500);                 --TODO
+        lv_CUSTOM1                      VARCHAR2 (500);
+        lv_CUSTOM2                      VARCHAR2 (500); --TODO work with Steven Clark to determine HR fields
+        --lv_CUSTOM3                      VARCHAR2 (500);
+        --lv_CUSTOM4                      VARCHAR2 (500);
+        --lv_CUSTOM5                      VARCHAR2 (500);
+        lv_CUSTOM6                      VARCHAR2 (500);
+        lv_CUSTOM7                      VARCHAR2 (500);
         --lv_CUSTOM8                      VARCHAR2 (500);
         lv_CUSTOM9                      VARCHAR2 (500);
-        lv_CUSTOM10                     VARCHAR2 (500);                 --TODO
+        --lv_CUSTOM10                     VARCHAR2 (500);
 
         --processing variables
         lv_term_code                    VARCHAR2 (6) := CASANDRA.F_FETCH_TERM;
@@ -1957,6 +1971,7 @@ AS
                 lv_banner_app_grad_date :=
                     f_student_grad_date (p_pidm => student_rec.pidm);
 
+                --GRADUATION CALCULATIONS
                 CASE
                     WHEN lv_banner_app_grad_date IS NOT NULL
                     THEN
@@ -1992,6 +2007,84 @@ AS
                     f_holds_financial (p_pidm => student_rec.pidm);
                 lv_CONDUCT_HOLD :=
                     f_holds_conduct (p_pidm => student_rec.pidm);
+
+                --STUDENT ADMISSIONS BLOCK
+                BEGIN
+                    SELECT saradap_term_code_entry
+                               admit_term,
+                           saradap_site_code || ' - ' || stvsite_desc
+                               admit_site,
+                           saradap_admt_code || ' - ' || stvadmt_desc
+                               admit_type,
+                           saradap_resd_code || ' - ' || stvresd_desc
+                               admit_residence
+                      INTO lv_ADMIT_TERM,
+                           lv_CUSTOM1,
+                           lv_CUSTOM6,
+                           lv_CUSTOM7
+                      FROM saradap
+                           LEFT JOIN stvsite
+                               ON saradap_site_code = stvsite_code
+                           LEFT JOIN stvadmt
+                               ON saradap_admt_code = stvadmt_code
+                           LEFT JOIN stvresd
+                               ON saradap_resd_code = stvresd_code
+                     WHERE     saradap_appl_date =
+                               (SELECT MAX (india.saradap_appl_date)
+                                  FROM saradap india
+                                 WHERE     india.saradap_appl_date <= SYSDATE
+                                       AND india.saradap_pidm =
+                                           saradap.saradap_pidm)
+                           AND saradap_pidm = student_rec.pidm;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND
+                    THEN
+                        lv_ADMIT_TERM := NULL;
+                        lv_CUSTOM1 := NULL;
+                        lv_CUSTOM6 := NULL;
+                        lv_CUSTOM7 := NULL;
+                        DBMS_OUTPUT.put_line (
+                               'ERROR: No admissions record found for '
+                            || student_rec.UUUID);
+                END;
+
+                --STUDENT ADVISOR BLOCK
+                BEGIN
+                    SELECT    spriden_id
+                           || ' - '
+                           || COALESCE (spbpers_pref_first_name,
+                                        spriden_first_name)
+                           || ' '
+                           || spriden_last_name     advisor_name,
+                           goremal_email_address    advisor_email
+                      INTO lv_ADVISOR_NAME, lv_ADVISOR_EMAIL
+                      FROM sgradvr
+                           JOIN spriden
+                               ON     spriden_pidm = sgradvr_advr_pidm
+                                  AND spriden_change_ind IS NULL
+                           LEFT JOIN goremal
+                               ON     goremal_pidm = sgradvr_advr_pidm
+                                  AND goremal_status_ind = 'A'
+                                  AND goremal_preferred_ind = 'Y'
+                           LEFT JOIN spbpers
+                               ON spbpers_pidm = sgradvr_advr_pidm
+                     WHERE     sgradvr_term_code_eff =
+                               (SELECT MAX (sgradvr_term_code_eff)
+                                  FROM sgradvr juliett
+                                 WHERE     juliett.sgradvr_prim_ind = 'Y'
+                                       AND juliett.sgradvr_pidm =
+                                           sgradvr.sgradvr_pidm)
+                           AND sgradvr_prim_ind = 'Y'
+                           AND sgradvr_pidm = student_rec.pidm;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND
+                    THEN
+                        lv_ADVISOR_NAME := NULL;
+                        lv_ADVISOR_EMAIL := NULL;
+                        DBMS_OUTPUT.put_line (
+                               'ERROR: No admissions record found for '
+                            || student_rec.UUUID);
+                END;
 
                 filedata :=
                        student_rec.UUUID
