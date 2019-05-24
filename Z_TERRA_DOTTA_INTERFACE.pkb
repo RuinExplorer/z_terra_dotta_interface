@@ -1,4 +1,4 @@
-/* Formatted on 5/23/2019 3:32:39 PM (QP5 v5.336) */
+/* Formatted on 5/24/2019 2:09:10 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -20,6 +20,7 @@ AS
     20190521   Carl Ellsworth   added some SEVIS specifics to ISSS extract
     20190522   Carl Ellsworth   added extended academics to ISSS extract
     20190523   Carl Ellsworth   added Admissions, Advisors, and more data elements
+    20190524   Carl Ellsworth   added sevis translations for degree codes
 
     ***************************************************************************/
 
@@ -1204,7 +1205,7 @@ AS
     * @param    p_banner_class_code   Banner class code to parse
     * @return   rtn_td_ug_level       TD acceptable undergraduate level code
     */
-    FUNCTION f_isss_translate_level (p_banner_class_code VARCHAR2)
+    FUNCTION f_isss_translate_ug_level (p_banner_class_code VARCHAR2)
         RETURN VARCHAR2
     AS
         rtn_td_ug_level   VARCHAR2 (5);
@@ -1228,7 +1229,53 @@ AS
                    'ERROR - Unhandeled Exception Translating Undergraduate Level: '
                 || SQLERRM);
             RAISE;
-    END f_isss_translate_level;
+    END f_isss_translate_ug_level;
+
+    /**
+    * Translates the Banner degree_code to a TD accepted education level
+    *
+    * Education Level
+    * SEVIS-Required Codes Code Description
+    * 03 Associate's
+    * 04 Bachelor's
+    * 05 Master's
+    * 06 Doctorate
+    * 07 Language training
+    * 08 High school
+    * 09 Flight school
+    * 10 Vocational school
+    * 11 Other
+    *
+    * @param    p_banner_degree_code     Banner degree code to parse
+    * @return   rtn_td_education_level   TD acceptable education level code
+    */
+    FUNCTION f_isss_translate_ed_level (p_banner_degree_code VARCHAR2)
+        RETURN VARCHAR2
+    AS
+        const_xlbl_code   CONSTANT VARCHAR2 (7) := 'TDXDEGC';
+        rtn_td_ed_level            VARCHAR2 (2);
+    BEGIN
+        SELECT sorxref_edi_value     sevis_education_level
+          INTO rtn_td_ed_level
+          FROM sorxref
+         WHERE     sorxref_xlbl_code = const_xlbl_code
+               AND sorxref_banner_value = p_banner_degree_code;
+
+        RETURN rtn_td_ed_level;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            rtn_td_ed_level := NULL;
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - No SOAXREF (TDXDEGC) value found for Banner Degree Code '
+                || p_banner_degree_code);
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Translating Undergraduate Level: '
+                || SQLERRM);
+            RAISE;
+    END f_isss_translate_ed_level;
 
     /**
     * Retrieves the TD translated SEVIS-Required Code
@@ -1922,11 +1969,12 @@ AS
                            AND sgbstdn_pidm = student_rec.pidm;
 
                     lv_UNDERGRAD_LEVEL :=
-                        f_isss_translate_level (
+                        f_isss_translate_ug_level (
                             p_banner_class_code   => lv_banner_class_code);
 
-                    --TODO translate lv_EDUCATION_LEVEL from degree_code
-                    lv_EDUCATION_LEVEL := NULL;
+                    lv_EDUCATION_LEVEL :=
+                        f_isss_translate_ed_level (
+                            p_banner_degree_code   => lv_banner_degree_code);
                 EXCEPTION
                     WHEN NO_DATA_FOUND
                     THEN
