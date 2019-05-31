@@ -1,4 +1,4 @@
-/* Formatted on 5/21/2019 9:48:22 AM (QP5 v5.336) */
+/* Formatted on 5/31/2019 11:36:09 AM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BANINST1.z_terra_dotta_interface
 AS
     /* STUDY ABROAD
@@ -68,7 +68,8 @@ AS
 
     */
 
-    PROCEDURE p_isss_extract_sis_user_info;
+    PROCEDURE p_isss_extract_sis_user_info (
+        p_override_term   VARCHAR2 DEFAULT NULL);
 --PROCEDURE p_isss_extract_hr_user_info;
 
 --

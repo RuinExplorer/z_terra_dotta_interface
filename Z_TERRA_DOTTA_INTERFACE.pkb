@@ -1,4 +1,4 @@
-/* Formatted on 5/24/2019 2:19:52 PM (QP5 v5.336) */
+/* Formatted on 5/31/2019 11:39:43 AM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -21,6 +21,7 @@ AS
     20190522   Carl Ellsworth   added extended academics to ISSS extract
     20190523   Carl Ellsworth   added Admissions, Advisors, and more data elements
     20190524   Carl Ellsworth   added sevis translations for degree codes
+    20190531   Carl Ellsworth   added logic for a term code override for calculations
 
     ***************************************************************************/
 
@@ -1578,7 +1579,8 @@ AS
     /**
     * Extracts International Student data for use by Terra Dotta ISSS
     */
-    PROCEDURE p_isss_extract_sis_user_info
+    PROCEDURE p_isss_extract_sis_user_info (
+        p_override_term   VARCHAR2 DEFAULT NULL)
     IS
         v_delim                         VARCHAR2 (1) := CHR (9); --ASCII Character horizonal tab
 
@@ -1671,7 +1673,7 @@ AS
                                        saradap.saradap_pidm)
                     LEFT JOIN stvcitz ON spbpers_citz_code = stvcitz_code
               WHERE     SARADAP_RESD_CODE = 'I'
-                    AND GOBINTL_NATN_CODE_LEGAL <> 'US');
+                    OR GOBINTL_NATN_CODE_LEGAL <> 'US');
 
         cur                             INTEGER;
         ret                             INTEGER;
@@ -1762,7 +1764,7 @@ AS
         --lv_CUSTOM10                     VARCHAR2 (500);
 
         --processing variables
-        lv_term_code                    VARCHAR2 (6) := CASANDRA.F_FETCH_TERM;
+        lv_term_code                    VARCHAR2 (6);
         --lv_pidm                         spriden.spriden_pidm%TYPE;
         lv_banner_line3                 VARCHAR2 (64);
         lv_banner_country               VARCHAR2 (64);
@@ -1934,6 +1936,14 @@ AS
 
         --output header record
         UTL_FILE.put_line (id, filedata);
+
+        --TERM CODE LOGIC
+        IF p_override_term IS NULL
+        THEN
+            lv_term_code := CASANDRA.F_FETCH_TERM;
+        ELSE
+            lv_term_code := p_override_term;
+        END IF;
 
         FOR student_rec IN student_cur
         LOOP
