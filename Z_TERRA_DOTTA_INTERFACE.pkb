@@ -1,4 +1,4 @@
-/* Formatted on 5/31/2019 11:39:43 AM (QP5 v5.336) */
+/* Formatted on 5/31/2019 3:51:45 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -99,36 +99,38 @@ AS
                                  out_natn_code      OUT VARCHAR2)
     AS
     BEGIN
-        SELECT spraddr_street_line1,
-               spraddr_street_line2,
-               spraddr_street_line3,
-               spraddr_city,
-               spraddr_stat_code,
-               spraddr_zip,
-               spraddr_natn_code
-          INTO out_street_line1,
-               out_street_line2,
-               out_street_line3,
-               out_city,
-               out_stat_code,
-               out_zip,
-               out_natn_code
-          FROM spraddr
-         WHERE     spraddr_pidm = p_pidm
-               AND spraddr_atyp_code = p_addr_type
-               AND (spraddr_status_ind IS NULL OR spraddr_status_ind = 'A')
-               AND TRUNC (NVL (p_addr_date, SYSDATE)) BETWEEN TRUNC (
-                                                                  NVL (
-                                                                      spraddr_from_date,
-                                                                      NVL (
-                                                                          p_addr_date,
-                                                                          SYSDATE)))
-                                                          AND TRUNC (
-                                                                  NVL (
-                                                                      spraddr_to_date,
-                                                                      NVL (
-                                                                          p_addr_date,
-                                                                          SYSDATE)));
+          SELECT spraddr_street_line1,
+                 spraddr_street_line2,
+                 spraddr_street_line3,
+                 spraddr_city,
+                 spraddr_stat_code,
+                 spraddr_zip,
+                 spraddr_natn_code
+            INTO out_street_line1,
+                 out_street_line2,
+                 out_street_line3,
+                 out_city,
+                 out_stat_code,
+                 out_zip,
+                 out_natn_code
+            FROM spraddr
+           WHERE     spraddr_pidm = p_pidm
+                 AND spraddr_atyp_code = p_addr_type
+                 AND (spraddr_status_ind IS NULL OR spraddr_status_ind = 'A')
+                 AND TRUNC (NVL (p_addr_date, SYSDATE)) BETWEEN TRUNC (
+                                                                    NVL (
+                                                                        spraddr_from_date,
+                                                                        NVL (
+                                                                            p_addr_date,
+                                                                            SYSDATE)))
+                                                            AND TRUNC (
+                                                                    NVL (
+                                                                        spraddr_to_date,
+                                                                        NVL (
+                                                                            p_addr_date,
+                                                                            SYSDATE)))
+        ORDER BY spraddr_activity_date DESC
+           FETCH FIRST ROW ONLY;
     --RETURN v_address;
     EXCEPTION
         WHEN NO_DATA_FOUND
@@ -161,7 +163,7 @@ AS
     IS
         v_level_code   VARCHAR2 (8);
     BEGIN
-        SELECT sgbstdn_levl_code
+        SELECT MAX (sgbstdn_levl_code)
           INTO v_level_code
           FROM sgbstdn
          WHERE     sgbstdn_term_code_eff =
@@ -241,20 +243,22 @@ AS
         -- the change was made on 20180926 and is noted here due to the field name
         rtn_exp_grad_date   DATE;
     BEGIN
-        SELECT sgbstdn_exp_grad_date, alpha.stvmajr_desc, stvcoll_desc --bravo.stvmajr_desc
-          INTO rtn_exp_grad_date, out_major_1, out_college       --out_major_2
-          FROM sgbstdn  alpha
-               LEFT JOIN stvmajr alpha
-                   ON alpha.stvmajr_code = sgbstdn_majr_code_1
-               LEFT JOIN stvmajr bravo
-                   ON bravo.stvmajr_code = sgbstdn_majr_code_2
-               LEFT JOIN stvcoll ON stvcoll_code = alpha.sgbstdn_coll_code_1
-         WHERE     sgbstdn_pidm = p_pidm
-               AND sgbstdn_term_code_eff =
-                   (SELECT MAX (bravo.sgbstdn_term_code_eff)
-                      FROM sgbstdn bravo
-                     WHERE     bravo.sgbstdn_pidm = alpha.sgbstdn_pidm
-                           AND bravo.sgbstdn_term_code_eff <= p_term_code);
+          SELECT sgbstdn_exp_grad_date, alpha.stvmajr_desc, stvcoll_desc --bravo.stvmajr_desc
+            INTO rtn_exp_grad_date, out_major_1, out_college     --out_major_2
+            FROM sgbstdn alpha
+                 LEFT JOIN stvmajr alpha
+                     ON alpha.stvmajr_code = sgbstdn_majr_code_1
+                 LEFT JOIN stvmajr bravo
+                     ON bravo.stvmajr_code = sgbstdn_majr_code_2
+                 LEFT JOIN stvcoll ON stvcoll_code = alpha.sgbstdn_coll_code_1
+           WHERE     sgbstdn_pidm = p_pidm
+                 AND sgbstdn_term_code_eff =
+                     (SELECT MAX (bravo.sgbstdn_term_code_eff)
+                        FROM sgbstdn bravo
+                       WHERE     bravo.sgbstdn_pidm = alpha.sgbstdn_pidm
+                             AND bravo.sgbstdn_term_code_eff <= p_term_code)
+        ORDER BY sgbstdn_activity_date DESC
+           FETCH FIRST ROW ONLY;
 
         RETURN rtn_exp_grad_date;
     EXCEPTION
@@ -279,44 +283,46 @@ AS
         --
         rtn_emergency_contact   VARCHAR2 (512);
     BEGIN
-        SELECT TRIM (
-                      'NAME: '
-                   || spremrg_first_name
-                   || ' '
-                   || spremrg_last_name
-                   || ' PHONE: '
-                   || spremrg_phone_area
-                   || spremrg_phone_number
-                   || ' ADDRESS: '
-                   || CASE
-                          WHEN spremrg_street_line1 IS NULL THEN ''
-                          ELSE spremrg_street_line1 || ', '
-                      END
-                   || CASE
-                          WHEN spremrg_street_line2 IS NULL THEN ''
-                          ELSE spremrg_street_line2 || ', '
-                      END
-                   || CASE
-                          WHEN spremrg_street_line3 IS NULL THEN ''
-                          ELSE spremrg_street_line3 || ', '
-                      END
-                   || spremrg_city
-                   || ' '
-                   || spremrg_stat_code
-                   || ' '
-                   || spremrg_zip
-                   || CASE
-                          WHEN spremrg_natn_code = 'US' THEN ''
-                          WHEN spremrg_natn_code IS NULL THEN ''
-                          ELSE ', ' || spremrg_natn_code
-                      END)    AS CONTACT_STRING
-          INTO rtn_emergency_contact
-          FROM spremrg alpha
-         WHERE     spremrg_pidm = p_pidm
-               AND spremrg_priority =
-                   (SELECT MIN (bravo.spremrg_priority)
-                      FROM spremrg bravo
-                     WHERE bravo.spremrg_pidm = alpha.spremrg_pidm);
+          SELECT TRIM (
+                        'NAME: '
+                     || spremrg_first_name
+                     || ' '
+                     || spremrg_last_name
+                     || ' PHONE: '
+                     || spremrg_phone_area
+                     || spremrg_phone_number
+                     || ' ADDRESS: '
+                     || CASE
+                            WHEN spremrg_street_line1 IS NULL THEN ''
+                            ELSE spremrg_street_line1 || ', '
+                        END
+                     || CASE
+                            WHEN spremrg_street_line2 IS NULL THEN ''
+                            ELSE spremrg_street_line2 || ', '
+                        END
+                     || CASE
+                            WHEN spremrg_street_line3 IS NULL THEN ''
+                            ELSE spremrg_street_line3 || ', '
+                        END
+                     || spremrg_city
+                     || ' '
+                     || spremrg_stat_code
+                     || ' '
+                     || spremrg_zip
+                     || CASE
+                            WHEN spremrg_natn_code = 'US' THEN ''
+                            WHEN spremrg_natn_code IS NULL THEN ''
+                            ELSE ', ' || spremrg_natn_code
+                        END)    AS CONTACT_STRING
+            INTO rtn_emergency_contact
+            FROM spremrg alpha
+           WHERE     spremrg_pidm = p_pidm
+                 AND spremrg_priority =
+                     (SELECT MIN (bravo.spremrg_priority)
+                        FROM spremrg bravo
+                       WHERE bravo.spremrg_pidm = alpha.spremrg_pidm)
+        ORDER BY spremrg_activity_date DESC
+           FETCH FIRST ROW ONLY;
 
         RETURN rtn_emergency_contact;
     EXCEPTION
@@ -332,23 +338,24 @@ AS
     END f_student_emergency;
 
     FUNCTION f_student_phone (
-        p_pidm        IN sprtele.sprtele_pidm%TYPE,
-        p_tele_code   IN sprtele.sprtele_tele_code%TYPE)
+        p_pidm           IN     sprtele.sprtele_pidm%TYPE,
+        p_tele_code      IN     sprtele.sprtele_tele_code%TYPE,
+        p_country_code      OUT sprtele.sprtele_ctry_code_phone%TYPE)
         RETURN VARCHAR2
     AS
         rtn_phone_number   VARCHAR2 (64);
     BEGIN
-        SELECT phone_number
-          INTO rtn_phone_number
-          FROM (  SELECT SUBSTR (
-                             REGEXP_REPLACE (
-                                    sprtele_phone_area
-                                 || sprtele_phone_number
-                                 || sprtele_phone_ext,
-                                 '[^0-9]+',
-                                 ''),
-                             1,
-                             10)    AS phone_number
+        SELECT phone_number, country_code
+          INTO rtn_phone_number, p_country_code
+          FROM (  SELECT REGEXP_REPLACE (
+                                sprtele_phone_area
+                             || sprtele_phone_number
+                             || sprtele_phone_ext,
+                             '[^0-9]+',
+                             '')                AS phone_number,
+                         REGEXP_REPLACE (sprtele_ctry_code_phone,
+                                         '[^0-9]+',
+                                         '')    AS country_code
                     FROM sprtele
                    WHERE     (   sprtele_atyp_code = NULL
                               OR (sprtele_atyp_code, sprtele_addr_seqno) =
@@ -367,7 +374,7 @@ AS
                          AND sprtele_pidm = p_pidm
                          AND sprtele_status_ind IS NULL
                 ORDER BY sprtele_seqno DESC) numbers
-         WHERE ROWNUM = 1;
+         FETCH FIRST ROW ONLY;
 
         RETURN rtn_phone_number;
     EXCEPTION
@@ -816,6 +823,7 @@ AS
         v_Visa_Status                VARCHAR2 (64);
 
         v_Cell_Number                VARCHAR2 (64);
+        v_country_code               VARCHAR2 (4);
         v_Cumulative_GPA             VARCHAR2 (64);
         v_Financial_Hold             VARCHAR2 (64);
         v_Academic_Hold              VARCHAR2 (64);
@@ -951,8 +959,9 @@ AS
                     v_Visa_Status := f_student_visa (v_pidm);
 
                     v_Cell_Number :=
-                        f_student_phone (p_pidm        => v_pidm,
-                                         p_tele_code   => 'MOB');
+                        f_student_phone (p_pidm           => v_pidm,
+                                         p_tele_code      => 'MOB',
+                                         p_country_code   => v_country_code);
 
                     v_Cumulative_GPA :=
                         f_parse (f_concat_as_of_cum_gpa (v_pidm,
@@ -1338,7 +1347,7 @@ AS
         p_term_code   sfrthst.sfrthst_term_code%TYPE)
         RETURN VARCHAR2
     IS
-        rtn_time_status   VARCHAR2 (2);
+        rtn_time_status   VARCHAR2 (50);
     BEGIN
         SELECT sfrthst_tmst_code || ' - ' || stvtmst_desc
           INTO rtn_time_status
@@ -1376,7 +1385,7 @@ AS
         p_date   shrdgmr.shrdgmr_grad_date%TYPE DEFAULT SYSDATE)
         RETURN DATE
     IS
-        rtn_exp_grad_date   VARCHAR2 (1);
+        rtn_exp_grad_date   DATE;
     BEGIN
         SELECT MIN (shrdgmr_grad_date)
           INTO rtn_exp_grad_date
@@ -1672,7 +1681,7 @@ AS
                                  WHERE bravo.saradap_pidm =
                                        saradap.saradap_pidm)
                     LEFT JOIN stvcitz ON spbpers_citz_code = stvcitz_code
-              WHERE     SARADAP_RESD_CODE = 'I'
+              WHERE    SARADAP_RESD_CODE = 'I'
                     OR GOBINTL_NATN_CODE_LEGAL <> 'US');
 
         cur                             INTEGER;
@@ -1705,22 +1714,22 @@ AS
         lv_US_PHONE                     VARCHAR2 (10);
         --lv_PERM_RESIDENT_COUNTRY        VARCHAR2 (2);
 
-        lv_US_ADDRESS_LINE1             VARCHAR2 (64);
-        lv_US_ADDRESS_LINE2             VARCHAR2 (64);
+        lv_US_ADDRESS_LINE1             VARCHAR2 (75);
+        lv_US_ADDRESS_LINE2             VARCHAR2 (75);
         lv_US_ADDRESS_CITY              VARCHAR2 (50);
-        lv_US_ADDRESS_STATE             VARCHAR2 (2);
-        lv_US_ADDRESS_ZIP               VARCHAR2 (5);
-        lv_FOREIGN_ADDRESS_LINE1        VARCHAR2 (64);
-        lv_FOREIGN_ADDRESS_LINE2        VARCHAR2 (64);
+        lv_US_ADDRESS_STATE             VARCHAR2 (3);
+        lv_US_ADDRESS_ZIP               VARCHAR2 (30);
+        lv_FOREIGN_ADDRESS_LINE1        VARCHAR2 (75);
+        lv_FOREIGN_ADDRESS_LINE2        VARCHAR2 (75);
         lv_FOREIGN_ADDRESS_CITY         VARCHAR2 (50);
-        lv_FOREIGN_ADDRESS_PROVINCE     VARCHAR2 (2);
-        lv_FOREIGN_ADDRESS_POSTALCODE   VARCHAR2 (20);
-        lv_FOREIGN_ADDRESS_COUNTRY      VARCHAR2 (2);
-        lv_US_MAILING_ADDRESS_LINE1     VARCHAR2 (64);
-        lv_US_MAILING_ADDRESS_LINE2     VARCHAR2 (64);
+        lv_FOREIGN_ADDRESS_PROVINCE     VARCHAR2 (3);
+        lv_FOREIGN_ADDRESS_POSTALCODE   VARCHAR2 (30);
+        lv_FOREIGN_ADDRESS_COUNTRY      VARCHAR2 (5);
+        lv_US_MAILING_ADDRESS_LINE1     VARCHAR2 (75);
+        lv_US_MAILING_ADDRESS_LINE2     VARCHAR2 (75);
         lv_US_MAILING_ADDRESS_CITY      VARCHAR2 (50);
-        lv_US_MAILING_ADDRESS_STATE     VARCHAR2 (2);
-        lv_US_MAILING_ADDRESS_ZIP       VARCHAR2 (5);
+        lv_US_MAILING_ADDRESS_STATE     VARCHAR2 (3);
+        lv_US_MAILING_ADDRESS_ZIP       VARCHAR2 (30);
 
         lv_MAJOR1_DEPT                  VARCHAR2 (500);
         lv_MAJOR2_DEPT                  VARCHAR2 (500) := NULL;
@@ -1762,10 +1771,26 @@ AS
         --lv_CUSTOM8                      VARCHAR2 (500);
         lv_CUSTOM9                      VARCHAR2 (500);
         --lv_CUSTOM10                     VARCHAR2 (500);
+        --lv_CUSTOM11                     VARCHAR2 (500);
+        --lv_CUSTOM12                     VARCHAR2 (500);
+        --lv_CUSTOM13                     VARCHAR2 (500);
+        --lv_CUSTOM14                     VARCHAR2 (500);
+        --lv_CUSTOM15                     VARCHAR2 (500);
+        --lv_CUSTOM16                     VARCHAR2 (500);
+        --lv_CUSTOM17                     VARCHAR2 (500);
+        --lv_CUSTOM18                     VARCHAR2 (500);
+        --lv_CUSTOM19                     VARCHAR2 (500);
+        --lv_CUSTOM20                     VARCHAR2 (500);
+        --lv_CUSTOM21                     VARCHAR2 (500);
+        --lv_CUSTOM22                     VARCHAR2 (500);
+        --lv_CUSTOM23                     VARCHAR2 (500);
+        --lv_CUSTOM24                     VARCHAR2 (500);
+        --lv_CUSTOM25                     VARCHAR2 (500);
 
         --processing variables
         lv_term_code                    VARCHAR2 (6);
         --lv_pidm                         spriden.spriden_pidm%TYPE;
+        lv_country_code                 VARCHAR2 (4);
         lv_banner_line3                 VARCHAR2 (64);
         lv_banner_country               VARCHAR2 (64);
         lv_banner_level_code            VARCHAR2 (64);
@@ -1932,7 +1957,39 @@ AS
             || v_delim
             || 'CUSTOM8'
             || v_delim
-            || 'CUSTOM9';
+            || 'CUSTOM9'
+            || v_delim
+            || 'CUSTOM10'
+            || v_delim
+            || 'CUSTOM11'
+            || v_delim
+            || 'CUSTOM12'
+            || v_delim
+            || 'CUSTOM13'
+            || v_delim
+            || 'CUSTOM14'
+            || v_delim
+            || 'CUSTOM15'
+            || v_delim
+            || 'CUSTOM16'
+            || v_delim
+            || 'CUSTOM17'
+            || v_delim
+            || 'CUSTOM18'
+            || v_delim
+            || 'CUSTOM19'
+            || v_delim
+            || 'CUSTOM20'
+            || v_delim
+            || 'CUSTOM21'
+            || v_delim
+            || 'CUSTOM22'
+            || v_delim
+            || 'CUSTOM23'
+            || v_delim
+            || 'CUSTOM24'
+            || v_delim
+            || 'CUSTOM25';
 
         --output header record
         UTL_FILE.put_line (id, filedata);
@@ -1954,8 +2011,9 @@ AS
                 lv_MARITAL_STATUS :=
                     F_GET_DESC ('STVMRTL', student_rec.banner_mrtl_code);
 
+                --SEVIS Local Address
                 p_student_address (student_rec.pidm,
-                                   'MA',
+                                   'SL',
                                    NULL,
                                    lv_US_ADDRESS_LINE1,
                                    lv_US_ADDRESS_LINE2,
@@ -1965,15 +2023,16 @@ AS
                                    lv_US_ADDRESS_ZIP,
                                    lv_banner_country);
 
+                --SEVIS Foreign Address
                 p_student_address (student_rec.pidm,
-                                   'PR',
+                                   'SF',
                                    NULL,
-                                   lv_US_ADDRESS_LINE1,
-                                   lv_US_ADDRESS_LINE2,
+                                   lv_FOREIGN_ADDRESS_LINE1,
+                                   lv_FOREIGN_ADDRESS_LINE2,
                                    lv_banner_line3,
-                                   lv_US_ADDRESS_CITY,
-                                   lv_US_ADDRESS_STATE,
-                                   lv_US_ADDRESS_ZIP,
+                                   lv_FOREIGN_ADDRESS_CITY,
+                                   lv_FOREIGN_ADDRESS_PROVINCE,
+                                   lv_FOREIGN_ADDRESS_POSTALCODE,
                                    lv_banner_country);
 
                 BEGIN                         --foreign address country lookup
@@ -1987,6 +2046,7 @@ AS
                         lv_FOREIGN_ADDRESS_COUNTRY := NULL;
                 END;
 
+                --Student Mailing Address
                 p_student_address (student_rec.pidm,
                                    'MA',
                                    NULL,
@@ -1999,8 +2059,21 @@ AS
                                    lv_banner_country);
 
                 lv_US_PHONE :=
-                    f_student_phone (p_pidm        => student_rec.pidm,
-                                     p_tele_code   => 'MA');
+                    SUBSTR (
+                        f_student_phone (p_pidm           => student_rec.pidm,
+                                         p_tele_code      => 'SL',
+                                         p_country_code   => lv_country_code),
+                        1,
+                        10);
+
+                lv_FOREIGN_PHONE :=
+                    SUBSTR (
+                        f_student_phone (
+                            p_pidm           => student_rec.pidm,
+                            p_tele_code      => 'SF',
+                            p_country_code   => lv_FOREIGN_PHONE_COUNTRY_CODE),
+                        1,
+                        10);
 
                 --STUDENT ACADEMICS BLOCK
                 BEGIN
@@ -2276,7 +2349,7 @@ AS
                         lv_ADVISOR_NAME := NULL;
                         lv_ADVISOR_EMAIL := NULL;
                         DBMS_OUTPUT.put_line (
-                               'ERROR: No admissions record found for '
+                               'ERROR: No advisor record found for '
                             || student_rec.UUUID);
                 END;
 
@@ -2431,7 +2504,39 @@ AS
                     || v_delim
                     || student_rec.CUSTOM8
                     || v_delim
-                    || lv_CUSTOM9;
+                    || lv_CUSTOM9
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL
+                    || v_delim
+                    || NULL;
 
                 UTL_FILE.put_line (id, filedata);
             EXCEPTION
