@@ -1,4 +1,4 @@
-/* Formatted on 5/31/2019 3:51:45 PM (QP5 v5.336) */
+/* Formatted on 6/4/2019 9:56:18 AM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -22,6 +22,7 @@ AS
     20190523   Carl Ellsworth   added Admissions, Advisors, and more data elements
     20190524   Carl Ellsworth   added sevis translations for degree codes
     20190531   Carl Ellsworth   added logic for a term code override for calculations
+    20190604   Carl Ellsworth   CIP Code formatting updates
 
     ***************************************************************************/
 
@@ -1288,6 +1289,31 @@ AS
     END f_isss_translate_ed_level;
 
     /**
+    * Translates the Banner six-digit cip code to a TD accepted formatting
+    *
+    * @param    p_banner_cip_code   Banner Degree CIP Code
+    * @return   rtn_isss_cip_code   TD formatted cip code
+    */
+    FUNCTION f_isss_translate_cip (p_banner_cip_code VARCHAR2 DEFAULT NULL)
+        RETURN VARCHAR2
+    AS
+        rtn_cip   VARCHAR2 (10);
+    BEGIN
+        rtn_cip :=
+            TO_CHAR (NVL (p_banner_cip_code / 10000, '00.0000'), '00.0000');
+        RETURN rtn_cip;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Formatting CIP CODE '
+                || p_banner_cip_code
+                || ':'
+                || SQLERRM);
+            RAISE;
+    END;
+
+    /**
     * Retrieves the TD translated SEVIS-Required Code
     *
     * Visa Type
@@ -2075,7 +2101,7 @@ AS
                         1,
                         10);
 
-                --STUDENT ACADEMICS BLOCK
+                --STUDENT CIRRICULUM BLOCK
                 BEGIN
                     SELECT sgbstdn_levl_code
                                banner_level_code,
@@ -2213,7 +2239,7 @@ AS
                         lv_EDUCATION_LEVEL := NULL;
                         lv_banner_exp_grad_date := NULL;
                         DBMS_OUTPUT.put_line (
-                               'ERROR: No student record found for '
+                               'INFO: No student record found for '
                             || student_rec.UUUID);
                 END;
 
@@ -2231,49 +2257,60 @@ AS
                         lv_CREDITS_EARNED := NULL;
                         lv_CUM_GPA := NULL;
                         DBMS_OUTPUT.put_line (
-                               'ERROR: No student cumulative gpa found for '
+                               'INFO: No student cumulative gpa found for '
                             || student_rec.UUUID);
                 END;
 
-                lv_banner_app_grad_date :=
-                    f_student_grad_date (p_pidm => student_rec.pidm);
+                --STUDENT ACADEMICS BLOCK
+                BEGIN
+                    lv_banner_app_grad_date :=
+                        f_student_grad_date (p_pidm => student_rec.pidm);
 
-                --GRADUATION CALCULATIONS
-                CASE
-                    WHEN lv_banner_app_grad_date IS NOT NULL
-                    THEN
-                        lv_GRAD_DATE := lv_banner_app_grad_date;
-                        lv_APPLIED_GRADUATION := 'Y';
-                    ELSE
-                        lv_APPLIED_GRADUATION := 'N';
-                        lv_GRAD_DATE := lv_banner_exp_grad_date;
-                END CASE;
+                    --GRADUATION CALCULATIONS
+                    CASE
+                        WHEN lv_banner_app_grad_date IS NOT NULL
+                        THEN
+                            lv_GRAD_DATE := lv_banner_app_grad_date;
+                            lv_APPLIED_GRADUATION := 'Y';
+                        ELSE
+                            lv_APPLIED_GRADUATION := 'N';
+                            lv_GRAD_DATE := lv_banner_exp_grad_date;
+                    END CASE;
 
-                lv_CREDITS_TOTAL :=
-                    f_credits_term_total (p_pidm        => student_rec.pidm,
+                    lv_CREDITS_TOTAL :=
+                        f_credits_term_total (p_pidm        => student_rec.pidm,
+                                              p_term_code   => lv_term_code);
+                    lv_CREDITS_CAMPUS :=
+                        f_credits_campus (p_pidm        => student_rec.pidm,
                                           p_term_code   => lv_term_code);
-                lv_CREDITS_CAMPUS :=
-                    f_credits_campus (p_pidm        => student_rec.pidm,
-                                      p_term_code   => lv_term_code);
-                lv_CREDITS_ONLINE :=
-                    f_credits_online (p_pidm        => student_rec.pidm,
-                                      p_term_code   => lv_term_code);
-                lv_CREDITS_ESL :=
-                    f_credits_esl (p_pidm        => student_rec.pidm,
-                                   p_term_code   => lv_term_code);
-                lv_FULL_TIME :=
-                    f_student_time_status (p_pidm        => student_rec.pidm,
-                                           p_term_code   => lv_term_code);
+                    lv_CREDITS_ONLINE :=
+                        f_credits_online (p_pidm        => student_rec.pidm,
+                                          p_term_code   => lv_term_code);
+                    lv_CREDITS_ESL :=
+                        f_credits_esl (p_pidm        => student_rec.pidm,
+                                       p_term_code   => lv_term_code);
+                    lv_FULL_TIME :=
+                        f_student_time_status (p_pidm        => student_rec.pidm,
+                                               p_term_code   => lv_term_code);
 
-                lv_ACADEMIC_DEFICIENCY :=
-                    f_student_academic_standing (
-                        p_pidm        => student_rec.pidm,
-                        p_term_code   => lv_term_code);
+                    lv_ACADEMIC_DEFICIENCY :=
+                        f_student_academic_standing (
+                            p_pidm        => student_rec.pidm,
+                            p_term_code   => lv_term_code);
 
-                lv_FINANCIAL_HOLD :=
-                    f_holds_financial (p_pidm => student_rec.pidm);
-                lv_CONDUCT_HOLD :=
-                    f_holds_conduct (p_pidm => student_rec.pidm);
+                    lv_FINANCIAL_HOLD :=
+                        f_holds_financial (p_pidm => student_rec.pidm);
+
+                    lv_CONDUCT_HOLD :=
+                        f_holds_conduct (p_pidm => student_rec.pidm);
+                EXCEPTION
+                    WHEN OTHERS
+                    THEN
+                        DBMS_OUTPUT.put_line (
+                               'ERROR: Unhandeled Exception in Academics Block for : '
+                            || student_rec.pidm);
+                        RAISE;
+                END;
 
                 --STUDENT ADMISSIONS BLOCK
                 BEGIN
@@ -2302,7 +2339,8 @@ AS
                                  WHERE     india.saradap_appl_date <= SYSDATE
                                        AND india.saradap_pidm =
                                            saradap.saradap_pidm)
-                           AND saradap_pidm = student_rec.pidm;
+                           AND saradap_pidm = student_rec.pidm
+                     FETCH FIRST ROW ONLY;
                 EXCEPTION
                     WHEN NO_DATA_FOUND
                     THEN
@@ -2311,7 +2349,7 @@ AS
                         lv_CUSTOM6 := NULL;
                         lv_CUSTOM7 := NULL;
                         DBMS_OUTPUT.put_line (
-                               'ERROR: No admissions record found for '
+                               'INFO: No admissions record found for '
                             || student_rec.UUUID);
                 END;
 
@@ -2344,12 +2382,19 @@ AS
                            AND sgradvr_prim_ind = 'Y'
                            AND sgradvr_pidm = student_rec.pidm;
                 EXCEPTION
+                    WHEN TOO_MANY_ROWS
+                    THEN
+                        lv_ADVISOR_NAME := NULL;
+                        lv_ADVISOR_EMAIL := NULL;
+                        DBMS_OUTPUT.put_line (
+                               'INFO: Multiple advisors found for '
+                            || student_rec.UUUID);
                     WHEN NO_DATA_FOUND
                     THEN
                         lv_ADVISOR_NAME := NULL;
                         lv_ADVISOR_EMAIL := NULL;
                         DBMS_OUTPUT.put_line (
-                               'ERROR: No advisor record found for '
+                               'INFO: No advisor record found for '
                             || student_rec.UUUID);
                 END;
 
@@ -2376,11 +2421,11 @@ AS
                     || v_delim
                     || lv_VISA_TYPE
                     || v_delim
-                    || lv_MAJOR_CIP
+                    || f_isss_translate_cip (lv_MAJOR_CIP)
                     || v_delim
-                    || lv_SECOND_MAJOR_CIP
+                    || f_isss_translate_cip (lv_SECOND_MAJOR_CIP)
                     || v_delim
-                    || lv_MINOR_CIP
+                    || f_isss_translate_cip (lv_MINOR_CIP)
                     || v_delim
                     || lv_EDUCATION_LEVEL
                     || v_delim
