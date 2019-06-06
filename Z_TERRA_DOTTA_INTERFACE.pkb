@@ -1,4 +1,4 @@
-/* Formatted on 6/4/2019 9:56:18 AM (QP5 v5.336) */
+/* Formatted on 6/5/2019 11:07:02 AM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -23,6 +23,7 @@ AS
     20190524   Carl Ellsworth   added sevis translations for degree codes
     20190531   Carl Ellsworth   added logic for a term code override for calculations
     20190604   Carl Ellsworth   CIP Code formatting updates
+    20190605   Carl Ellsworth   Language Test Fields added
 
     ***************************************************************************/
 
@@ -1362,6 +1363,94 @@ AS
     END f_isss_visa;
 
     /**
+    * Retrieves banner test scores designated as LANGUAGE_TEST1
+    *
+    * @param    p_pidm      student pidm for lookup
+    * @return   rtn_tests   TD acceptable test info block
+    */
+    FUNCTION f_isss_language_test1 (p_pidm gorvisa.gorvisa_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_tests   VARCHAR2 (500) := NULL;
+
+        CURSOR test_cursor IS
+            SELECT    stvtesc_desc
+                   || ' ('
+                   || stvtesc_code
+                   || '): '
+                   || sortest_test_score    test_score
+              FROM sortest JOIN stvtesc ON sortest_tesc_code = stvtesc_code
+             WHERE     sortest_tesc_code IN ('T02',
+                                             'T07',
+                                             'T11',
+                                             'ILTL',
+                                             'ILTP',
+                                             'ILTR',
+                                             'ILTS',
+                                             'ILTW')
+                   AND sortest_pidm = p_pidm;
+    BEGIN
+        FOR test_iterator IN test_cursor
+        LOOP
+            rtn_tests := rtn_tests || test_iterator.test_score || ';';
+        END LOOP;
+
+        RETURN rtn_tests;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving language_test_1: '
+                || SQLERRM);
+            RAISE;
+    END f_isss_language_test1;
+
+    /**
+    * Retrieves banner test scores designated as LANGUAGE_TEST2
+    *
+    * @param    p_pidm      student pidm for lookup
+    * @return   rtn_tests   TD acceptable test info block
+    */
+    FUNCTION f_isss_language_test2 (p_pidm gorvisa.gorvisa_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_tests   VARCHAR2 (500) := NULL;
+
+        CURSOR test_cursor IS
+            SELECT    stvtesc_desc
+                   || ' ('
+                   || stvtesc_code
+                   || '): '
+                   || sortest_test_score    test_score
+              FROM sortest JOIN stvtesc ON sortest_tesc_code = stvtesc_code
+             WHERE     sortest_tesc_code IN ('IELI',
+                                             'A01',
+                                             'S01',
+                                             'S13')
+                   AND sortest_pidm = p_pidm;
+    BEGIN
+        FOR test_iterator IN test_cursor
+        LOOP
+            rtn_tests := rtn_tests || test_iterator.test_score || ';';
+        END LOOP;
+
+        RETURN rtn_tests;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving language_test_1: '
+                || SQLERRM);
+            RAISE;
+    END f_isss_language_test2;
+
+    /**
     * Retrieves the time status for a given term
     *
     * @param    p_pidm            student pidm for lookup
@@ -1767,8 +1856,8 @@ AS
         --lv_STUDENT_ID                   VARCHAR2 (500);
         lv_ADVISOR_NAME                 VARCHAR2 (500);
         lv_ADVISOR_EMAIL                VARCHAR2 (500);
-        lv_LANGUAGE_TEST1               VARCHAR2 (500);                 --TODO
-        lv_LANGUAGE_TEST2               VARCHAR2 (500);                 --TODO
+        lv_LANGUAGE_TEST1               VARCHAR2 (500);
+        lv_LANGUAGE_TEST2               VARCHAR2 (500);
         lv_CREDITS_TOTAL                NUMBER (11, 3);
         lv_CREDITS_CAMPUS               NUMBER (11, 3);
         lv_CREDITS_ONLINE               NUMBER (11, 3);
@@ -2087,7 +2176,7 @@ AS
                 lv_US_PHONE :=
                     SUBSTR (
                         f_student_phone (p_pidm           => student_rec.pidm,
-                                         p_tele_code      => 'SL',
+                                         p_tele_code      => 'MA',
                                          p_country_code   => lv_country_code),
                         1,
                         10);
@@ -2276,6 +2365,11 @@ AS
                             lv_APPLIED_GRADUATION := 'N';
                             lv_GRAD_DATE := lv_banner_exp_grad_date;
                     END CASE;
+
+                    lv_LANGUAGE_TEST1 :=
+                        f_isss_language_test1 (student_rec.pidm);
+                    lv_LANGUAGE_TEST2 :=
+                        f_isss_language_test2 (student_rec.pidm);
 
                     lv_CREDITS_TOTAL :=
                         f_credits_term_total (p_pidm        => student_rec.pidm,
