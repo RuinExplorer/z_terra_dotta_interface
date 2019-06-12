@@ -3045,13 +3045,13 @@ AS
                     || v_delim
                     || lv_CUSTOM12
                     || v_delim
-                    || NULL
+                    || lv_CUSTOM13
                     || v_delim
-                    || NULL
+                    || lv_CUSTOM14
                     || v_delim
-                    || NULL
+                    || lv_CUSTOM15
                     || v_delim
-                    || NULL
+                    || lv_CUSTOM16
                     || v_delim
                     || NULL
                     || v_delim
