@@ -1,4 +1,4 @@
-/* Formatted on 6/12/2019 5:03:43 PM (QP5 v5.336) */
+/* Formatted on 6/12/2019 5:35:40 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -1637,42 +1637,6 @@ AS
     END f_credits_campus;
 
     /**
-    * Retrieves the credit count for online classes in term
-    *
-    * @param    p_pidm             student pidm for lookup
-    * @param    p_term_code        term code for lookup
-    * @return   rtn_credit_count   count of credits
-    */
-    FUNCTION f_credits_online (p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
-                               p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
-        RETURN NUMBER
-    IS
-        rtn_credit_count   NUMBER (7, 3);
-    BEGIN
-        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours_online
-          INTO rtn_credit_count
-          FROM sfrstcr
-               JOIN ssbsect
-                   ON     ssbsect_crn = sfrstcr_crn
-                      AND ssbsect_term_code = sfrstcr_term_code
-         WHERE     sfrstcr_term_code = p_term_code
-               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
-                                           FROM stvrsts
-                                          WHERE stvrsts_incl_sect_enrl = 'Y')
-               AND ssbsect_insm_code IN ('I', 'WB', 'XO')
-               AND sfrstcr_pidm = p_pidm;
-
-        RETURN rtn_credit_count;
-    EXCEPTION
-        WHEN OTHERS
-        THEN
-            DBMS_OUTPUT.PUT_LINE (
-                   'ERROR - Unhandeled Exception Retrieving credit count: '
-                || SQLERRM);
-            RAISE;
-    END f_credits_online;
-
-    /**
     * Retrieves the credit count for ieli classes in term
     *
     * @param    p_pidm             student pidm for lookup
@@ -1709,6 +1673,42 @@ AS
     END f_credits_esl;
 
     /**
+    * Retrieves the credit count for online classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_online (p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+                               p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours_online
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND ssbsect_insm_code IN ('I', 'WB', 'XO')
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_online;
+
+    /**
     * Retrieves the credit count for broadcast classes in term
     *
     * @param    p_pidm             student pidm for lookup
@@ -1732,10 +1732,7 @@ AS
                AND sfrstcr_rsts_code IN (SELECT stvrsts_code
                                            FROM stvrsts
                                           WHERE stvrsts_incl_sect_enrl = 'Y')
-               AND ssbsect_insm_code IN ('BB',
-                                         'BI',
-                                         'T',
-                                         'XS')
+               AND ssbsect_insm_code IN ('T', 'XS')
                AND sfrstcr_pidm = p_pidm;
 
         RETURN rtn_credit_count;
@@ -1747,6 +1744,152 @@ AS
                 || SQLERRM);
             RAISE;
     END f_credits_broadcast;
+
+    /**
+    * Retrieves the credit count for interactive broadcast classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_interactive (
+        p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+        p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND ssbsect_insm_code = 'R'
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving interactive broadcast credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_interactive;
+
+    /**
+    * Retrieves the credit count for blended classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_blended (p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+                                p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND ssbsect_insm_code IN ('BB', 'BI')
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving blended credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_blended;
+
+    /**
+    * Retrieves the credit count for hybrid classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_hybrid (p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+                               p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND ssbsect_insm_code = 'XH'
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving hybrid credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_hybrid;
+
+    /**
+    * Retrieves the credit count for traditional/face-to-face classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_traditional (
+        p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+        p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)     credit_hours
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND ssbsect_insm_code IN ('P', 'TR')
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving traditional credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_traditional;
 
     /**
     * Retrieves banner employment records
@@ -2073,22 +2216,22 @@ AS
         lv_MARITAL_STATUS               VARCHAR2 (500);
         --lv_PREFERRED_NAME               VARCHAR2 (500);
         --lv_PREFERRED_GENDER             VARCHAR2 (500);
-        lv_CUSTOM1                      VARCHAR2 (500);
-        lv_CUSTOM2                      VARCHAR2 (500);
+        lv_CUSTOM1                      VARCHAR2 (500);           --admit site
+        lv_CUSTOM2                      VARCHAR2 (500);    --campus employment
         --lv_CUSTOM3                      VARCHAR2 (500);
         --lv_CUSTOM4                      VARCHAR2 (500);
         --lv_CUSTOM5                      VARCHAR2 (500);
-        lv_CUSTOM6                      VARCHAR2 (500);
-        lv_CUSTOM7                      VARCHAR2 (500);
+        lv_CUSTOM6                      VARCHAR2 (500);           --admit type
+        lv_CUSTOM7                      VARCHAR2 (500);      --admit residence
         --lv_CUSTOM8                      VARCHAR2 (500);
-        lv_CUSTOM9                      VARCHAR2 (500);
-        lv_CUSTOM10                     VARCHAR2 (1);
-        lv_CUSTOM11                     VARCHAR2 (500);
-        lv_CUSTOM12                     VARCHAR2 (500);
-        --lv_CUSTOM13                     VARCHAR2 (500);
-        --lv_CUSTOM14                     VARCHAR2 (500);
-        --lv_CUSTOM15                     VARCHAR2 (500);
-        --lv_CUSTOM16                     VARCHAR2 (500);
+        lv_CUSTOM9                      VARCHAR2 (500);     --leave of absense
+        lv_CUSTOM10                     VARCHAR2 (1);            --pass phrase
+        lv_CUSTOM11                     VARCHAR2 (500); --graduate assistant FTE
+        lv_CUSTOM12                     VARCHAR2 (500);    --credits broadcast
+        lv_CUSTOM13                     VARCHAR2 (500); --credits interactive broadcast
+        lv_CUSTOM14                     VARCHAR2 (500);      --credits blended
+        lv_CUSTOM15                     VARCHAR2 (500);       --credits hybrid
+        lv_CUSTOM16                     VARCHAR2 (500);  --credits traditional
         --lv_CUSTOM17                     VARCHAR2 (500);
         --lv_CUSTOM18                     VARCHAR2 (500);
         --lv_CUSTOM19                     VARCHAR2 (500);
@@ -2571,19 +2714,38 @@ AS
                     lv_CREDITS_TOTAL :=
                         f_credits_term_total (p_pidm        => student_rec.pidm,
                                               p_term_code   => lv_term_code);
+
                     lv_CREDITS_CAMPUS :=
                         f_credits_campus (p_pidm        => student_rec.pidm,
                                           p_term_code   => lv_term_code);
-                    lv_CREDITS_ONLINE :=
-                        f_credits_online (p_pidm        => student_rec.pidm,
-                                          p_term_code   => lv_term_code);
+
                     lv_CREDITS_ESL :=
                         f_credits_esl (p_pidm        => student_rec.pidm,
                                        p_term_code   => lv_term_code);
 
+                    lv_CREDITS_ONLINE :=
+                        f_credits_online (p_pidm        => student_rec.pidm,
+                                          p_term_code   => lv_term_code);
+
                     lv_CUSTOM12 :=
                         f_credits_broadcast (p_pidm        => student_rec.pidm,
                                              p_term_code   => lv_term_code);
+
+                    lv_CUSTOM13 :=
+                        f_credits_interactive (p_pidm        => student_rec.pidm,
+                                               p_term_code   => lv_term_code);
+
+                    lv_CUSTOM14 :=
+                        f_credits_blended (p_pidm        => student_rec.pidm,
+                                           p_term_code   => lv_term_code);
+
+                    lv_CUSTOM15 :=
+                        f_credits_hybrid (p_pidm        => student_rec.pidm,
+                                          p_term_code   => lv_term_code);
+
+                    lv_CUSTOM16 :=
+                        f_credits_traditional (p_pidm        => student_rec.pidm,
+                                               p_term_code   => lv_term_code);
 
                     lv_FULL_TIME :=
                         f_student_time_status (p_pidm        => student_rec.pidm,
