@@ -1,4 +1,4 @@
-/* Formatted on 6/12/2019 10:10:01 AM (QP5 v5.336) */
+/* Formatted on 6/12/2019 10:17:31 AM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -1708,6 +1708,46 @@ AS
     END f_credits_esl;
 
     /**
+    * Retrieves the credit count for broadcast classes in term
+    *
+    * @param    p_pidm             student pidm for lookup
+    * @param    p_term_code        term code for lookup
+    * @return   rtn_credit_count   count of credits
+    */
+    FUNCTION f_credits_broadcast (
+        p_pidm        sfrstcr.sfrstcr_pidm%TYPE,
+        p_term_code   sfrstcr.sfrstcr_term_code%TYPE)
+        RETURN NUMBER
+    IS
+        rtn_credit_count   NUMBER (7, 3);
+    BEGIN
+        SELECT COALESCE (SUM (sfrstcr_credit_hr), 0)    credit_hours_broadcast
+          INTO rtn_credit_count
+          FROM sfrstcr
+               JOIN ssbsect
+                   ON     ssbsect_crn = sfrstcr_crn
+                      AND ssbsect_term_code = sfrstcr_term_code
+         WHERE     sfrstcr_term_code = p_term_code
+               AND sfrstcr_rsts_code IN (SELECT stvrsts_code
+                                           FROM stvrsts
+                                          WHERE stvrsts_incl_sect_enrl = 'Y')
+               AND ssbsect_insm_code IN ('BB',
+                                         'BI',
+                                         'T',
+                                         'XS')
+               AND sfrstcr_pidm = p_pidm;
+
+        RETURN rtn_credit_count;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving broadcast credit count: '
+                || SQLERRM);
+            RAISE;
+    END f_credits_broadcast;
+
+    /**
     * Retrieves banner employment records
     *
     * @param    p_pidm          student pidm for lookup
@@ -2038,7 +2078,7 @@ AS
         lv_CUSTOM9                      VARCHAR2 (500);
         lv_CUSTOM10                     VARCHAR2 (1);
         lv_CUSTOM11                     VARCHAR2 (500);
-        --lv_CUSTOM12                     VARCHAR2 (500);
+        lv_CUSTOM12                     VARCHAR2 (500);
         --lv_CUSTOM13                     VARCHAR2 (500);
         --lv_CUSTOM14                     VARCHAR2 (500);
         --lv_CUSTOM15                     VARCHAR2 (500);
@@ -2534,6 +2574,11 @@ AS
                     lv_CREDITS_ESL :=
                         f_credits_esl (p_pidm        => student_rec.pidm,
                                        p_term_code   => lv_term_code);
+
+                    lv_CUSTOM12 :=
+                        f_credits_broadcast (p_pidm        => student_rec.pidm,
+                                             p_term_code   => lv_term_code);
+
                     lv_FULL_TIME :=
                         f_student_time_status (p_pidm        => student_rec.pidm,
                                                p_term_code   => lv_term_code);
@@ -2830,7 +2875,7 @@ AS
                     || v_delim
                     || lv_CUSTOM11
                     || v_delim
-                    || NULL
+                    || lv_CUSTOM12
                     || v_delim
                     || NULL
                     || v_delim
