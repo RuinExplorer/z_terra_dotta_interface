@@ -1,4 +1,4 @@
-/* Formatted on 6/11/2019 4:37:20 PM (QP5 v5.336) */
+/* Formatted on 6/12/2019 9:55:33 AM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -25,6 +25,7 @@ AS
     20190604   Carl Ellsworth   CIP Code formatting updates
     20190605   Carl Ellsworth   Language Test Fields added
     20190611   Carl Ellsworth   campus_employment and Grad Assistant FTE fields added
+    20190612   Carl Ellsworth   added USU specific passphrase check
 
     ***************************************************************************/
 
@@ -1812,6 +1813,34 @@ AS
     END f_isss_grad_assist_fte;
 
     /**
+    * Retrieves USU Specific Passphrase
+    *
+    * @param    p_anum                   student a-number for lookup
+    * @return   rtn_pass_phrase_exists   Y/N indicator of passphrase existence
+    */
+    FUNCTION f_usu_passphrase (p_anum spriden.spriden_id%TYPE)
+        RETURN VARCHAR2
+    IS
+        lv_passphrase   VARCHAR2 (1);
+    BEGIN
+        SELECT MAX ('Y')
+          INTO lv_passphrase
+          FROM zubpphrase
+         WHERE zubldap_id = p_anum;
+
+        lv_passphrase := NVL (lv_passphrase, 'N');
+
+        RETURN lv_passphrase;
+    EXCEPTION
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception checking USU passphrase: '
+                || SQLERRM);
+            RAISE;
+    END f_usu_passphrase;
+
+    /**
     * Extracts International Student data for use by Terra Dotta ISSS
     */
     PROCEDURE p_isss_extract_sis_user_info (
@@ -1996,7 +2025,7 @@ AS
         lv_CUSTOM7                      VARCHAR2 (500);
         --lv_CUSTOM8                      VARCHAR2 (500);
         lv_CUSTOM9                      VARCHAR2 (500);
-        --lv_CUSTOM10                     VARCHAR2 (500);
+        lv_CUSTOM10                     VARCHAR2 (1);
         lv_CUSTOM11                     VARCHAR2 (500);
         --lv_CUSTOM12                     VARCHAR2 (500);
         --lv_CUSTOM13                     VARCHAR2 (500);
@@ -2617,6 +2646,8 @@ AS
                             || student_rec.UUUID);
                 END;
 
+                lv_CUSTOM10 := f_usu_passphrase (student_rec.UUUID);
+
                 filedata :=
                        student_rec.UUUID
                     || v_delim
@@ -2770,7 +2801,7 @@ AS
                     || v_delim
                     || lv_CUSTOM9
                     || v_delim
-                    || NULL
+                    || lv_CUSTOM10
                     || v_delim
                     || lv_CUSTOM11
                     || v_delim
