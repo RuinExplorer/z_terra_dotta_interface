@@ -1,4 +1,4 @@
-/* Formatted on 6/12/2019 10:17:31 AM (QP5 v5.336) */
+/* Formatted on 6/12/2019 5:03:43 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -26,6 +26,7 @@ AS
     20190605   Carl Ellsworth   Language Test Fields added
     20190611   Carl Ellsworth   campus_employment and Grad Assistant FTE fields added
     20190612   Carl Ellsworth   added USU specific passphrase check
+    20190612   Carl Ellsworth   Optional Practical Training (OPT) added (grads within 1217 days)
 
     ***************************************************************************/
 
@@ -1891,7 +1892,8 @@ AS
     PROCEDURE p_isss_extract_sis_user_info (
         p_override_term   VARCHAR2 DEFAULT NULL)
     IS
-        v_delim                         VARCHAR2 (1) := CHR (9); --ASCII Character horizonal tab
+        v_delim                CONSTANT VARCHAR2 (1) := CHR (124); --ASCII pipe character
+        lv_opt_duration        CONSTANT INTEGER := 1217;
 
         --PROCESSING VARIABLES
         id                              UTL_FILE.file_type;
@@ -1968,7 +1970,11 @@ AS
                        FROM sfrstcr                     --registration records
                       WHERE sfrstcr_term_code IN
                                 (SELECT term_code
-                                   FROM TABLE (F_LIST_ACTIVETERMS)))
+                                   FROM TABLE (F_LIST_ACTIVETERMS))
+                     UNION
+                     (SELECT shrdgmr_pidm
+                        FROM shrdgmr
+                       WHERE shrdgmr_grad_date >= (SYSDATE - lv_opt_duration)))
                     population
                     JOIN spriden
                         ON spriden_pidm = pidm AND spriden_change_ind IS NULL
