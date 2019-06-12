@@ -1,4 +1,4 @@
-/* Formatted on 6/5/2019 11:07:02 AM (QP5 v5.336) */
+/* Formatted on 6/11/2019 4:37:20 PM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -24,6 +24,7 @@ AS
     20190531   Carl Ellsworth   added logic for a term code override for calculations
     20190604   Carl Ellsworth   CIP Code formatting updates
     20190605   Carl Ellsworth   Language Test Fields added
+    20190611   Carl Ellsworth   campus_employment and Grad Assistant FTE fields added
 
     ***************************************************************************/
 
@@ -1701,6 +1702,116 @@ AS
     END f_credits_esl;
 
     /**
+    * Retrieves banner employment records
+    *
+    * @param    p_pidm          student pidm for lookup
+    * @return   rtn_positions   TD acceptable campus_employement info block
+    */
+    FUNCTION f_isss_campus_employment (p_pidm nbrbjob.nbrbjob_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_positions   VARCHAR2 (500) := NULL;
+
+        CURSOR position_cursor IS
+              --Returns all jobs for a specific date (sysdate)
+              SELECT    nbrjobs_desc
+                     || ' for '
+                     || ftvorgn_title
+                     || ' '
+                     || TO_CHAR (nbrbjob_begin_date, 'DDMONYYYY')
+                     || '-'
+                     || NVL (TO_CHAR (nbrbjob_end_date, 'DDMONYYYY'),
+                             'CURRENT')    position
+                FROM nbrbjob
+                     JOIN nbrjobs
+                         ON     nbrjobs_pidm = nbrbjob_pidm
+                            AND nbrjobs_posn = nbrbjob_posn
+                            AND nbrjobs_suff = nbrbjob_suff
+                            -- Following subquery returns the only the most recent job detail record
+                            AND nbrjobs_effective_date =
+                                (SELECT MAX (nbrjobs_effective_date)
+                                   FROM nbrjobs jr
+                                  WHERE     jr.nbrjobs_pidm = nbrbjob_pidm
+                                        AND jr.nbrjobs_posn = nbrbjob_posn
+                                        AND jr.nbrjobs_suff = nbrbjob_suff
+                                        AND jr.nbrjobs_status = 'A'
+                                        AND jr.nbrjobs_effective_date <=
+                                            SYSDATE)
+                     -- Join to FTVORGN for department name, if DPCODE is needed, you can remove the join and just use nbrjobs_orgn_code_ts
+                     JOIN ftvorgn
+                         ON     ftvorgn_orgn_code = nbrjobs_orgn_code_ts
+                            AND ftvorgn_nchg_date >= SYSDATE
+                            AND ftvorgn_eff_date <= SYSDATE
+               WHERE     nbrbjob_begin_date <= SYSDATE
+                     AND NVL (nbrbjob_end_date, SYSDATE + 365) >= SYSDATE
+                     AND nbrbjob_pidm = p_pidm
+            ORDER BY nbrbjob_begin_date DESC;
+    BEGIN
+        FOR position_iterator IN position_cursor
+        LOOP
+            rtn_positions :=
+                rtn_positions || position_iterator.position || ';';
+        END LOOP;
+
+        RETURN rtn_positions;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving campus_employment: '
+                || SQLERRM);
+            RAISE;
+    END f_isss_campus_employment;
+
+    /**
+    * Retrieves banner employment records
+    *
+    * @param    p_pidm                student pidm for lookup
+    * @return   rtn_grad_assist_fte   FTE percentage of Graduate Assitantship positions
+    */
+    FUNCTION f_isss_grad_assist_fte (p_pidm nbrbjob.nbrbjob_pidm%TYPE)
+        RETURN VARCHAR2
+    IS
+        rtn_grad_assist_fte   VARCHAR2 (500) := NULL;
+    BEGIN
+        SELECT SUM (nbrjobs_fte)     grad_assist_fte
+          INTO rtn_grad_assist_fte
+          FROM nbrbjob
+               JOIN nbrjobs
+                   ON     nbrjobs_pidm = nbrbjob_pidm
+                      AND nbrjobs_posn = nbrbjob_posn
+                      AND nbrjobs_suff = nbrbjob_suff
+                      -- Following subquery returns the only the most recent job detail record
+                      AND nbrjobs_effective_date =
+                          (SELECT MAX (nbrjobs_effective_date)
+                             FROM nbrjobs jr
+                            WHERE     jr.nbrjobs_pidm = nbrbjob_pidm
+                                  AND jr.nbrjobs_posn = nbrbjob_posn
+                                  AND jr.nbrjobs_suff = nbrbjob_suff
+                                  AND jr.nbrjobs_status = 'A'
+                                  AND jr.nbrjobs_effective_date <= SYSDATE)
+         WHERE     nbrbjob_begin_date <= SYSDATE
+               AND NVL (nbrbjob_end_date, SYSDATE + 0) >= SYSDATE --no offset: depending on how you filter the data, you could end up summing up the fte for two GA positions that are back to back (but not necesarrily at the same time).
+               AND SUBSTR (nbrbjob_posn, 1, 3) = 'P03'
+               AND nbrbjob_pidm = p_pidm;
+
+        RETURN rtn_grad_assist_fte;
+    EXCEPTION
+        WHEN NO_DATA_FOUND
+        THEN
+            RETURN NULL;
+        WHEN OTHERS
+        THEN
+            DBMS_OUTPUT.PUT_LINE (
+                   'ERROR - Unhandeled Exception Retrieving grad_assist_fte: '
+                || SQLERRM);
+            RAISE;
+    END f_isss_grad_assist_fte;
+
+    /**
     * Extracts International Student data for use by Terra Dotta ISSS
     */
     PROCEDURE p_isss_extract_sis_user_info (
@@ -1815,7 +1926,7 @@ AS
         --lv_DOB                          DATE;
         --lv_GENDER                       VARCHAR2 (1);
         --lv_CONFIDENTIALITY_IND          VARCHAR2 (1);
-        lv_HR_FLAG                      VARCHAR2 (1) := NULL; --TODO: work with Steven Clark to determine HR flag
+        lv_HR_FLAG                      VARCHAR2 (1) := 'N'; --TODO: work with Steven Clark to determine HR flag
         lv_SUFFIX                       VARCHAR2 (10);
         lv_VISA_TYPE                    VARCHAR2 (2);
         lv_MAJOR_CIP                    VARCHAR2 (7);
@@ -1877,7 +1988,7 @@ AS
         --lv_PREFERRED_NAME               VARCHAR2 (500);
         --lv_PREFERRED_GENDER             VARCHAR2 (500);
         lv_CUSTOM1                      VARCHAR2 (500);
-        lv_CUSTOM2                      VARCHAR2 (500); --TODO work with Steven Clark to determine HR fields
+        lv_CUSTOM2                      VARCHAR2 (500);
         --lv_CUSTOM3                      VARCHAR2 (500);
         --lv_CUSTOM4                      VARCHAR2 (500);
         --lv_CUSTOM5                      VARCHAR2 (500);
@@ -1886,7 +1997,7 @@ AS
         --lv_CUSTOM8                      VARCHAR2 (500);
         lv_CUSTOM9                      VARCHAR2 (500);
         --lv_CUSTOM10                     VARCHAR2 (500);
-        --lv_CUSTOM11                     VARCHAR2 (500);
+        lv_CUSTOM11                     VARCHAR2 (500);
         --lv_CUSTOM12                     VARCHAR2 (500);
         --lv_CUSTOM13                     VARCHAR2 (500);
         --lv_CUSTOM14                     VARCHAR2 (500);
@@ -2492,6 +2603,20 @@ AS
                             || student_rec.UUUID);
                 END;
 
+                --HR BLOCK
+                BEGIN
+                    lv_CUSTOM2 := f_isss_campus_employment (student_rec.pidm);
+                    lv_CUSTOM11 := f_isss_grad_assist_fte (student_rec.pidm);
+                EXCEPTION
+                    WHEN OTHERS
+                    THEN
+                        lv_CUSTOM2 := NULL;
+                        lv_CUSTOM11 := NULL;
+                        DBMS_OUTPUT.put_line (
+                               'ERROR: Unhandeled Exception in HR Block for : '
+                            || student_rec.UUUID);
+                END;
+
                 filedata :=
                        student_rec.UUUID
                     || v_delim
@@ -2647,7 +2772,7 @@ AS
                     || v_delim
                     || NULL
                     || v_delim
-                    || NULL
+                    || lv_CUSTOM11
                     || v_delim
                     || NULL
                     || v_delim
