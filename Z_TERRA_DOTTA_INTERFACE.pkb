@@ -1,4 +1,4 @@
-/* Formatted on 6/12/2019 9:55:33 AM (QP5 v5.336) */
+/* Formatted on 6/12/2019 10:10:01 AM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -1545,6 +1545,11 @@ AS
                      WHERE     golf.shrttrm_term_code <= p_term_code
                            AND golf.shrttrm_pidm = shrttrm.shrttrm_pidm);
 
+        IF (rtn_academic_standing = ' - ')
+        THEN
+            RETURN NULL;
+        END IF;
+
         RETURN rtn_academic_standing;
     EXCEPTION
         WHEN NO_DATA_FOUND
@@ -1905,7 +1910,13 @@ AS
                         CUSTOM4,                                      --spouse
                     gobintl_child_number
                         CUSTOM5,                                    --children
-                    spbpers_citz_code || ' - ' || stvcitz_desc
+                    CASE
+                        WHEN spbpers_citz_code IS NOT NULL
+                        THEN
+                            spbpers_citz_code || ' - ' || stvcitz_desc
+                        ELSE
+                            NULL
+                    END
                         CUSTOM8                                  --citizenship
                FROM (SELECT DISTINCT saradap_pidm     pidm
                        FROM saradap                       --admissions records
@@ -2548,14 +2559,28 @@ AS
 
                 --STUDENT ADMISSIONS BLOCK
                 BEGIN
-                    SELECT saradap_term_code_entry
-                               admit_term,
-                           saradap_site_code || ' - ' || stvsite_desc
-                               admit_site,
-                           saradap_admt_code || ' - ' || stvadmt_desc
-                               admit_type,
-                           saradap_resd_code || ' - ' || stvresd_desc
-                               admit_residence
+                    SELECT saradap_term_code_entry    admit_term,
+                           CASE
+                               WHEN saradap_site_code IS NOT NULL
+                               THEN
+                                   saradap_site_code || ' - ' || stvsite_desc
+                               ELSE
+                                   NULL
+                           END                        admit_site,
+                           CASE
+                               WHEN saradap_admt_code IS NOT NULL
+                               THEN
+                                   saradap_admt_code || ' - ' || stvadmt_desc
+                               ELSE
+                                   NULL
+                           END                        admit_type,
+                           CASE
+                               WHEN saradap_resd_code IS NOT NULL
+                               THEN
+                                   saradap_resd_code || ' - ' || stvresd_desc
+                               ELSE
+                                   NULL
+                           END                        admit_residence
                       INTO lv_ADMIT_TERM,
                            lv_CUSTOM1,
                            lv_CUSTOM6,
