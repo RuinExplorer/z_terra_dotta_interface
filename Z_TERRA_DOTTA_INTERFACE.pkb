@@ -1,4 +1,4 @@
-/* Formatted on 6/12/2019 5:35:40 PM (QP5 v5.336) */
+/* Formatted on 6/24/2019 9:51:42 AM (QP5 v5.336) */
 CREATE OR REPLACE PACKAGE BODY BANINST1.z_terra_dotta_interface
 AS
     /***************************************************************************
@@ -27,6 +27,7 @@ AS
     20190611   Carl Ellsworth   campus_employment and Grad Assistant FTE fields added
     20190612   Carl Ellsworth   added USU specific passphrase check
     20190612   Carl Ellsworth   Optional Practical Training (OPT) added (grads within 1217 days)
+    20190624   Carl Ellsworth   updated ISSS filename
 
     ***************************************************************************/
 
@@ -2144,7 +2145,7 @@ AS
 
         --FILE PROCESSING VARIABLES
         v_directory                     VARCHAR2 (30) := gv_directory_name;
-        v_file_name                     VARCHAR2 (30) := 'sis_user_info.txt';
+        v_file_name                     VARCHAR2 (30) := 'sis_user_info_isss.txt';
 
         --EXTRACT VARIABLES
         --lv_UUUID                        spriden.spriden_id%TYPE;
